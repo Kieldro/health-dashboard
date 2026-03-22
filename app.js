@@ -273,6 +273,53 @@ async function init() {
     },
   ], baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' })));
 
+  // 10. VO2 Max
+  const vo2Points = data.vo2max.map(d => ({ x: d.date, y: d.vo2max }));
+  const vo2Trend = linearTrendline(vo2Points);
+  pending.push(createChart('vo2maxChart', 'line', [
+    {
+      label: 'VO2 Max',
+      data: vo2Points,
+      ...lineDefaults(COLORS.green),
+    },
+    {
+      label: 'Trend',
+      data: vo2Trend,
+      ...lineDefaults(COLORS.yellow),
+      pointRadius: 0,
+      borderDash: [6, 3],
+      tension: 0,
+    },
+  ], baseOptions({ showLegend: true })));
+
+  // 11. Weekly Training Volume
+  pending.push(createChart('volumeChart', 'bar', [
+    {
+      label: 'Sets',
+      data: data.workoutVolume.map(d => ({ x: d.week, y: d.total_sets })),
+      backgroundColor: COLORS.blueBar,
+      borderColor: COLORS.blue,
+      borderWidth: 1,
+      borderRadius: 3,
+    },
+  ], baseOptions({ timeUnit: 'week', yLabel: 'sets' })));
+
+  // 12. Key Lift Progression
+  const liftColors = {
+    'leg press': COLORS.blue,
+    'chest press': COLORS.red,
+    'lat pulldown': COLORS.green,
+    'dips': COLORS.yellow,
+    'rdl': COLORS.purple,
+  };
+  const liftDatasets = Object.entries(data.liftProgression).map(([name, points]) => ({
+    label: name.charAt(0).toUpperCase() + name.slice(1),
+    data: points.map(p => ({ x: p.date, y: p.weight })),
+    ...lineDefaults(liftColors[name] || COLORS.blue),
+  }));
+  pending.push(createChart('liftChart', 'line', liftDatasets,
+    baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'lbs' })));
+
   // Populate all charts simultaneously so animations start in sync
   requestAnimationFrame(() => {
     for (const { chart, datasets } of pending) {

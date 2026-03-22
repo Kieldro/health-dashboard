@@ -5,13 +5,16 @@ async function fetchJSON(path) {
 }
 
 export async function loadAllData() {
-  const [weight, bodyfat, measurements, rhr, hrv, activities] = await Promise.all([
+  const [weight, bodyfat, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression] = await Promise.all([
     fetchJSON('/api/weight'),
     fetchJSON('/api/bodyfat'),
     fetchJSON('/api/measurements'),
     fetchJSON('/api/rhr'),
     fetchJSON('/api/hrv'),
     fetchJSON('/api/activities'),
+    fetchJSON('/api/vo2max'),
+    fetchJSON('/api/workout-volume'),
+    fetchJSON('/api/lift-progression'),
   ]);
 
   return {
@@ -21,6 +24,9 @@ export async function loadAllData() {
     rhr,
     hrv,
     runs: processRuns(activities),
+    vo2max,
+    workoutVolume,
+    liftProgression: processLiftProgression(liftProgression),
   };
 }
 
@@ -95,6 +101,16 @@ function getWeeklyMileage(runs) {
   return [...byWeek.entries()]
     .map(([week, miles]) => ({ week, miles: Math.round(miles * 10) / 10 }))
     .sort((a, b) => a.week.localeCompare(b.week));
+}
+
+// --- Lift Progression ---
+function processLiftProgression(rows) {
+  const byExercise = {};
+  for (const r of rows) {
+    if (!byExercise[r.exercise]) byExercise[r.exercise] = [];
+    byExercise[r.exercise].push({ date: r.week, weight: r.top_weight, reps: r.top_reps });
+  }
+  return byExercise;
 }
 
 // --- Utilities ---

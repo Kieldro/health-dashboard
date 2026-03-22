@@ -60,6 +60,29 @@ def api_activities():
     """)
 
 
+def api_vo2max():
+    return query_db(GARMIN_DB, """
+        SELECT date, vo2max FROM running_activities
+        WHERE vo2max IS NOT NULL
+        ORDER BY date
+    """)
+
+
+def api_workout_volume():
+    return query_db(GARMIN_DB,
+        "SELECT week_date as week, total_exercises, total_sets, training_days FROM workout_weeks ORDER BY week_date")
+
+
+def api_lift_progression():
+    return query_db(GARMIN_DB, """
+        SELECT week_date as week, exercise, top_weight, top_reps
+        FROM workout_exercises
+        WHERE exercise IN ('leg press', 'chest press', 'lat pulldown', 'dips', 'rdl')
+          AND top_weight IS NOT NULL
+        ORDER BY week_date
+    """)
+
+
 API_ROUTES = {
     "/api/weight": api_weight,
     "/api/bodyfat": api_bodyfat,
@@ -67,6 +90,9 @@ API_ROUTES = {
     "/api/rhr": api_rhr,
     "/api/hrv": api_hrv,
     "/api/activities": api_activities,
+    "/api/vo2max": api_vo2max,
+    "/api/workout-volume": api_workout_volume,
+    "/api/lift-progression": api_lift_progression,
 }
 
 
