@@ -53,14 +53,7 @@ main {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 1rem 1.25rem;
-  opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 0.5s ease, transform 0.5s ease;
-}
-
-.chart-card.visible {
-  opacity: 1;
-  transform: translateY(0);
+  position: relative;
 }
 
 .chart-card h2 {
@@ -75,11 +68,26 @@ canvas {
   max-height: 280px;
 }
 
-#loading {
-  text-align: center;
-  padding: 4rem;
-  color: var(--text-muted);
-  font-size: 1.1rem;
+/* Loading skeleton animation */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.chart-card.loading canvas {
+  opacity: 0;
+}
+
+.chart-card.loading::after {
+  content: '';
+  position: absolute;
+  top: 2.75rem;
+  left: 1.25rem;
+  right: 1.25rem;
+  bottom: 1rem;
+  border-radius: 6px;
+  background: var(--border);
+  animation: skeleton-pulse 1.8s ease-in-out infinite;
 }
 
 @media (max-width: 520px) {

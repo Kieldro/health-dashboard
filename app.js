@@ -13,12 +13,13 @@ const COLORS = {
 const GRID_COLOR = 'rgba(255,255,255,0.06)';
 const TICK_COLOR = '#8b8fa3';
 
+const ANIMATION = { duration: 1000, easing: 'easeOutQuart' };
+
 /** Shared defaults for all charts */
 function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {}) {
   return {
     responsive: true,
     maintainAspectRatio: false,
-    animation: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
       title: { display: false },
@@ -86,32 +87,27 @@ function computeMA(data, key, window) {
   });
 }
 
-let chartIndex = 0;
-
+/**
+ * Create a chart with empty datasets and no animation.
+ * Returns { chart, datasets } so data can be applied later in sync.
+ */
 function createChart(canvasId, type, datasets, options) {
-  const canvas = document.getElementById(canvasId);
-  const card = canvas.closest('.chart-card');
-  const idx = chartIndex++;
-
-  const observer = new IntersectionObserver((entries, obs) => {
-    for (const entry of entries) {
-      if (entry.isIntersecting) {
-        obs.unobserve(canvas);
-        setTimeout(() => {
-          new Chart(canvas, { type, data: { datasets }, options });
-          card.classList.add('visible');
-        }, idx * 120);
-      }
-    }
-  }, { threshold: 0.1 });
-  observer.observe(canvas);
+  const ctx = document.getElementById(canvasId);
+  const emptyDatasets = datasets.map(ds => ({ ...ds, data: [] }));
+  const chart = new Chart(ctx, {
+    type,
+    data: { datasets: emptyDatasets },
+    options: { ...options, animation: false },
+  });
+  return { chart, datasets };
 }
 
 async function init() {
   const data = await loadAllData();
+  const pending = [];
 
   // 1. Weight
-  createChart('weightChart', 'line', [
+  pending.push(createChart('weightChart', 'line', [
     {
       label: 'Daily Weight',
       data: data.weight.map(d => ({ x: d.date, y: d.weight })),
@@ -124,10 +120,10 @@ async function init() {
       ...lineDefaults(COLORS.blue),
       pointRadius: 0,
     },
-  ], baseOptions({ showLegend: true, yLabel: 'lbs' }));
+  ], baseOptions({ showLegend: true, yLabel: 'lbs' })));
 
   // 2. Body Fat
-  createChart('bodyFatChart', 'line', [
+  pending.push(createChart('bodyFatChart', 'line', [
     {
       label: 'Renpho BF%',
       data: data.bodyFat.renpho.map(d => ({ x: d.date, y: d.renpho })),
@@ -138,10 +134,10 @@ async function init() {
       data: data.bodyFat.navy.map(d => ({ x: d.date, y: d.navy })),
       ...lineDefaults(COLORS.red),
     },
-  ], baseOptions({ showLegend: true, yLabel: '%' }));
+  ], baseOptions({ showLegend: true, yLabel: '%' })));
 
   // 3. Measurements (stomach & waist)
-  createChart('measurementsChart', 'line', [
+  pending.push(createChart('measurementsChart', 'line', [
     {
       label: 'Stomach',
       data: data.bodyMeasurements.filter(d => d.stomach != null).map(d => ({ x: d.date, y: d.stomach })),
@@ -152,46 +148,46 @@ async function init() {
       data: data.bodyMeasurements.filter(d => d.waist != null).map(d => ({ x: d.date, y: d.waist })),
       ...lineDefaults(COLORS.yellow),
     },
-  ], baseOptions({ showLegend: true, yLabel: 'inches' }));
+  ], baseOptions({ showLegend: true, yLabel: 'inches' })));
 
   // 4. Resting Heart Rate
-  createChart('rhrChart', 'line', [
+  pending.push(createChart('rhrChart', 'line', [
     {
       label: 'RHR',
       data: data.rhr.map(d => ({ x: d.date, y: d.rhr })),
       ...lineDefaults(COLORS.red),
     },
     {
-      label: '14-day MA',
-      data: computeMA(data.rhr, 'rhr', 14),
+      label: '30-day MA',
+      data: computeMA(data.rhr, 'rhr', 30),
       ...lineDefaults(COLORS.yellow),
       pointRadius: 0,
       borderWidth: 2,
       tension: 0.3,
     },
-  ], baseOptions({ showLegend: true, yLabel: 'bpm' }));
+  ], baseOptions({ showLegend: true, yLabel: 'bpm' })));
 
   // 5. HRV
-  createChart('hrvChart', 'line', [
+  pending.push(createChart('hrvChart', 'line', [
     {
       label: 'HRV',
       data: data.hrv.map(d => ({ x: d.date, y: d.hrv })),
       ...lineDefaults(COLORS.green),
     },
     {
-      label: '14-day MA',
-      data: computeMA(data.hrv, 'hrv', 14),
+      label: '30-day MA',
+      data: computeMA(data.hrv, 'hrv', 30),
       ...lineDefaults(COLORS.yellow),
       pointRadius: 0,
       borderWidth: 2,
       tension: 0.3,
     },
-  ], baseOptions({ showLegend: true, yLabel: 'ms' }));
+  ], baseOptions({ showLegend: true, yLabel: 'ms' })));
 
   // 6. Efficiency Factor + trendline
   const efPoints = data.runs.all.map(d => ({ x: d.date, y: d.ef }));
   const efTrend = linearTrendline(efPoints);
-  createChart('efChart', 'line', [
+  pending.push(createChart('efChart', 'line', [
     {
       label: 'EF',
       data: efPoints,
@@ -205,10 +201,10 @@ async function init() {
       borderDash: [6, 3],
       tension: 0,
     },
-  ], baseOptions({ showLegend: true }));
+  ], baseOptions({ showLegend: true })));
 
   // 7. 5K Heart Rate (primary y) + Pace (secondary y)
-  createChart('fiveKChart', 'line', [
+  pending.push(createChart('fiveKChart', 'line', [
     {
       label: 'Avg HR',
       data: data.runs.fiveK.map(d => ({ x: d.date, y: d.avgHR })),
@@ -243,21 +239,21 @@ async function init() {
         title: { display: true, text: 'min/mi', color: TICK_COLOR },
       },
     },
-  });
+  }));
 
   // 8. Long Run Distance
-  createChart('longRunChart', 'line', [
+  pending.push(createChart('longRunChart', 'line', [
     {
       label: 'Distance',
       data: data.runs.longRuns.map(d => ({ x: d.date, y: d.distMi })),
       ...lineDefaults(COLORS.purple),
     },
-  ], baseOptions({ yLabel: 'miles' }));
+  ], baseOptions({ yLabel: 'miles' })));
 
   // 9. Weekly Mileage (bar + trendline)
   const mileagePoints = data.runs.weeklyMileage.map(d => ({ x: d.week, y: d.miles }));
   const mileageTrend = linearTrendline(mileagePoints);
-  createChart('weeklyMileageChart', 'bar', [
+  pending.push(createChart('weeklyMileageChart', 'bar', [
     {
       label: 'Miles',
       data: mileagePoints,
@@ -275,7 +271,17 @@ async function init() {
       borderDash: [6, 3],
       tension: 0,
     },
-  ], baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' }));
+  ], baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' })));
+
+  // Populate all charts simultaneously so animations start in sync
+  requestAnimationFrame(() => {
+    for (const { chart, datasets } of pending) {
+      chart.data.datasets = datasets;
+      chart.options.animation = ANIMATION;
+      chart.update();
+      chart.canvas.closest('.chart-card')?.classList.remove('loading');
+    }
+  });
 }
 
 init();
