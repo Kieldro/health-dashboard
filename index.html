@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Health Dashboard</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+</head>
+<body>
+  <header>
+    <h1>Health Dashboard</h1>
+    <p class="subtitle">Ian's metrics</p>
+  </header>
+  <main>
+    <section class="chart-grid">
+      <div class="chart-card">
+        <h2>Weight Trend</h2>
+        <canvas id="weightChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Body Fat %</h2>
+        <canvas id="bodyFatChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Stomach & Waist</h2>
+        <canvas id="measurementsChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Resting Heart Rate</h2>
+        <canvas id="rhrChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>HRV (Overnight Avg)</h2>
+        <canvas id="hrvChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Running Efficiency Factor</h2>
+        <canvas id="efChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>5K Heart Rate Trend</h2>
+        <canvas id="fiveKChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Long Run Distance</h2>
+        <canvas id="longRunChart"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Weekly Mileage</h2>
+        <canvas id="weeklyMileageChart"></canvas>
+      </div>
+    </section>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,95 @@
+:root {
+  --bg: #0f1117;
+  --card-bg: #1a1d27;
+  --border: #2a2d3a;
+  --text: #e0e0e0;
+  --text-muted: #8b8fa3;
+  --accent: #4a9eff;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  min-height: 100vh;
+}
+
+header {
+  padding: 1.5rem 2rem 0.5rem;
+  text-align: center;
+}
+
+header h1 {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.subtitle {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+main {
+  padding: 1rem;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
+  gap: 1rem;
+}
+
+.chart-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.chart-card.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.chart-card h2 {
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  margin-bottom: 0.75rem;
+}
+
+canvas {
+  width: 100% !important;
+  max-height: 280px;
+}
+
+#loading {
+  text-align: center;
+  padding: 4rem;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+}
+
+@media (max-width: 520px) {
+  .chart-grid {
+    grid-template-columns: 1fr;
+  }
+  main {
+    padding: 0.5rem;
+  }
+  .chart-card {
+    padding: 0.75rem;
+  }
+}
