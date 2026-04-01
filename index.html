@@ -5,9 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Health Dashboard</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=f1a4c5d6">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
   <header>
@@ -25,8 +27,12 @@
         <canvas id="bodyFatChart"></canvas>
       </div>
       <div class="chart-card loading">
-        <h2>Stomach & Waist</h2>
+        <h2>Body Measurements</h2>
         <canvas id="measurementsChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Limb Measurements</h2>
+        <canvas id="limbChart"></canvas>
       </div>
       <div class="chart-card loading">
         <h2>Resting Heart Rate</h2>
@@ -61,11 +67,27 @@
         <canvas id="volumeChart"></canvas>
       </div>
       <div class="chart-card loading">
-        <h2>Key Lift Progression</h2>
-        <canvas id="liftChart"></canvas>
+        <h2>Upper Body Machines</h2>
+        <canvas id="upperMachineChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Upper Body DB</h2>
+        <canvas id="upperDBChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Lower Body Machines</h2>
+        <canvas id="lowerMachineChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Lower Body BB/DB</h2>
+        <canvas id="lowerBBDBChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Bodyweight Exercises</h2>
+        <canvas id="bodyweightChart"></canvas>
       </div>
     </section>
   </main>
-  <script type="module" src="app.js"></script>
+  <script type="module" src="app.js?v=f1a4c5d6"></script>
 </body>
 </html>

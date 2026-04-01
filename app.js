@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js';
+import { loadAllData } from './data.js?v=f1a4c5d6';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -26,6 +26,17 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
       legend: {
         display: showLegend,
         labels: { color: TICK_COLOR, boxWidth: 12 },
+      },
+      zoom: {
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x',
+        },
+        pan: {
+          enabled: true,
+          mode: 'x',
+        },
       },
     },
     scales: {
@@ -93,7 +104,18 @@ function computeMA(data, key, window) {
  */
 function createChart(canvasId, type, datasets, options) {
   const ctx = document.getElementById(canvasId);
-  const emptyDatasets = datasets.map(ds => ({ ...ds, data: [] }));
+  if (!ctx) {
+    console.warn(`Canvas #${canvasId} not found`);
+    return null;
+  }
+  const emptyDatasets = datasets.map(ds => {
+    const copy = {};
+    for (const [k, v] of Object.entries(ds)) {
+      if (k !== 'data' && typeof v !== 'function') copy[k] = v;
+    }
+    copy.data = [];
+    return copy;
+  });
   const chart = new Chart(ctx, {
     type,
     data: { datasets: emptyDatasets },
@@ -136,7 +158,7 @@ async function init() {
     },
   ], baseOptions({ showLegend: true, yLabel: '%' })));
 
-  // 3. Measurements (stomach & waist)
+  // 3. Measurements (stomach, waist & neck)
   pending.push(createChart('measurementsChart', 'line', [
     {
       label: 'Stomach',
@@ -147,6 +169,35 @@ async function init() {
       label: 'Waist',
       data: data.bodyMeasurements.filter(d => d.waist != null).map(d => ({ x: d.date, y: d.waist })),
       ...lineDefaults(COLORS.yellow),
+    },
+    {
+      label: 'Neck',
+      data: data.bodyMeasurements.filter(d => d.neck != null).map(d => ({ x: d.date, y: d.neck })),
+      ...lineDefaults(COLORS.green),
+    },
+  ], baseOptions({ showLegend: true, yLabel: 'inches' })));
+
+  // 3b. Limb Measurements (bicep, forearm, quad, calf)
+  pending.push(createChart('limbChart', 'line', [
+    {
+      label: 'Bicep',
+      data: data.bodyMeasurements.filter(d => d.right_bicep != null).map(d => ({ x: d.date, y: d.right_bicep })),
+      ...lineDefaults(COLORS.red),
+    },
+    {
+      label: 'Forearm',
+      data: data.bodyMeasurements.filter(d => d.right_forearm != null).map(d => ({ x: d.date, y: d.right_forearm })),
+      ...lineDefaults(COLORS.blue),
+    },
+    {
+      label: 'Quad',
+      data: data.bodyMeasurements.filter(d => d.right_quad != null).map(d => ({ x: d.date, y: d.right_quad })),
+      ...lineDefaults(COLORS.green),
+    },
+    {
+      label: 'Calf',
+      data: data.bodyMeasurements.filter(d => d.right_calf != null).map(d => ({ x: d.date, y: d.right_calf })),
+      ...lineDefaults(COLORS.purple),
     },
   ], baseOptions({ showLegend: true, yLabel: 'inches' })));
 
@@ -304,29 +355,150 @@ async function init() {
     },
   ], baseOptions({ timeUnit: 'week', yLabel: 'sets' })));
 
-  // 12. Key Lift Progression
-  const liftColors = {
-    'leg press': COLORS.blue,
-    'chest press': COLORS.red,
-    'lat pulldown': COLORS.green,
-    'dips': COLORS.yellow,
-    'rdl': COLORS.purple,
-  };
-  const liftDatasets = Object.entries(data.liftProgression).map(([name, points]) => ({
-    label: name.charAt(0).toUpperCase() + name.slice(1),
-    data: points.map(p => ({ x: p.date, y: p.weight })),
-    ...lineDefaults(liftColors[name] || COLORS.blue),
+  // 12-14. Combined exercise progression charts
+  // Machine exercises: filter to 2026+ (new gym)
+  const GYM_START = '2026-01-01';
+  function liftData(exercise, filterDate) {
+    const points = data.liftProgression[exercise] || [];
+    const isRepsOnly = ['pull ups', 'push ups', 'dips', 'v ups', 'calf raise bw'].includes(exercise);
+    const isSeconds = exercise === 'dead hang';
+    return points
+      .filter(p => !filterDate || p.date >= filterDate)
+      .map(p => ({
+        x: p.date,
+        y: isRepsOnly ? p.maxReps : isSeconds ? p.reps : p.weight,
+        reps: p.reps,
+      })).filter(p => p.y != null && p.y > 0);
+  }
+  const legendFilterTrend = (item) => !item.text.startsWith('_');
+
+  /** Point radius scaled by reps — bigger dot = more reps */
+  function repsPointRadius(ctx) {
+    const reps = ctx.raw && ctx.raw.reps;
+    if (!reps || typeof reps !== 'number') return 2;
+    return Math.max(2, Math.min(8, reps / 3));
+  }
+  function liftDefaults(color) {
+    return {
+      ...lineDefaults(color),
+      pointRadius: repsPointRadius,
+      pointHoverRadius: 8,
+    };
+  }
+  function liftOpts(yLabel) {
+    const opts = baseOptions({ showLegend: true, timeUnit: 'month', yLabel });
+    opts.plugins.legend.labels.filter = legendFilterTrend;
+    opts.plugins.tooltip = {
+      callbacks: {
+        afterLabel: (ctx) => {
+          const reps = ctx.raw?.reps;
+          return reps ? `Reps: ${reps}` : '';
+        },
+      },
+    };
+    return opts;
+  }
+
+  // 12. Upper Body Machines (Chest Press + Row Machine)
+  const chestData = liftData('chest press', GYM_START);
+  const rowData = liftData('row machine', GYM_START);
+  pending.push(createChart('upperMachineChart', 'line', [
+    { label: 'Chest Press', data: chestData, ...liftDefaults(COLORS.red) },
+    { label: '_chestTrend', data: linearTrendline(chestData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    { label: 'Row Machine', data: rowData, ...liftDefaults(COLORS.blue) },
+    { label: '_rowTrend', data: linearTrendline(rowData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+  ], liftOpts('lbs')));
+
+  // 13. Upper Body DB (Lat Raise, Hammer Curls, Kelso Shrugs)
+  const latData = liftData('lateral raise');
+  const curlData = liftData('hammer curl');
+  const shrugData = liftData('kelso shrugs');
+  pending.push(createChart('upperDBChart', 'line', [
+    { label: 'Lat Raise', data: latData, ...liftDefaults(COLORS.green) },
+    { label: '_latTrend', data: linearTrendline(latData), ...lineDefaults('rgba(81,207,102,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    { label: 'Hammer Curls', data: curlData, ...liftDefaults(COLORS.yellow) },
+    { label: '_curlTrend', data: linearTrendline(curlData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    { label: 'Kelso Shrugs', data: shrugData, ...liftDefaults(COLORS.blue) },
+    { label: '_shrugTrend', data: linearTrendline(shrugData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+  ], liftOpts('lbs')));
+
+  // 14. Lower Body Machines (Leg Press, Side Bend, Calf Raise)
+  const legData = liftData('leg press', GYM_START);
+  const sideData = liftData('side bend');
+  const calfData = liftData('calf raise seated');
+  pending.push(createChart('lowerMachineChart', 'line', [
+    { label: 'Leg Press', data: legData, ...liftDefaults(COLORS.purple) },
+    { label: '_legTrend', data: linearTrendline(legData), ...lineDefaults('rgba(204,93,232,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    { label: 'Side Bend', data: sideData, ...liftDefaults(COLORS.green) },
+    { label: '_sideTrend', data: linearTrendline(sideData), ...lineDefaults('rgba(81,207,102,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
+    { label: '_calfTrend', data: linearTrendline(calfData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+  ], liftOpts('lbs')));
+
+  // 15. Lower Body BB/DB (RDL Barbell + RDL Dumbbell)
+  const rdlBBData = liftData('rdl barbell');
+  const rdlDBData = liftData('rdl dumbbell');
+  pending.push(createChart('lowerBBDBChart', 'line', [
+    { label: 'RDL Barbell', data: rdlBBData, ...liftDefaults(COLORS.red) },
+    { label: '_rdlBBTrend', data: linearTrendline(rdlBBData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    { label: 'RDL Dumbbell', data: rdlDBData, ...liftDefaults(COLORS.yellow) },
+    { label: '_rdlDBTrend', data: linearTrendline(rdlDBData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+  ], liftOpts('lbs')));
+
+  // 14. Bodyweight (Pull-ups, Dips, Push-ups + Dead Hang seconds on right axis)
+  const pullData = liftData('pull ups');
+  const dipsData = liftData('dips');
+  const pushData = liftData('push ups');
+  const calfBWData = liftData('calf raise bw');
+  const hangData = liftData('dead hang');
+  pending.push(createChart('bodyweightChart', 'line', [
+    { label: 'Pull-ups', data: pullData, ...lineDefaults(COLORS.green), yAxisID: 'y' },
+    { label: '_pullTrend', data: linearTrendline(pullData), ...lineDefaults('rgba(81,207,102,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { label: 'Dips', data: dipsData, ...lineDefaults(COLORS.yellow), yAxisID: 'y' },
+    { label: '_dipsTrend', data: linearTrendline(dipsData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { label: 'Push-ups', data: pushData, ...lineDefaults(COLORS.red), yAxisID: 'y' },
+    { label: '_pushTrend', data: linearTrendline(pushData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { label: 'Calf Raise', data: calfBWData, ...lineDefaults(COLORS.purple), yAxisID: 'y' },
+    { label: '_calfBWTrend', data: linearTrendline(calfBWData), ...lineDefaults('rgba(204,93,232,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { label: '_pushTrend', data: linearTrendline(pushData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { label: 'Dead Hang (s)', data: hangData, ...lineDefaults(COLORS.blue), yAxisID: 'y1' },
+    { label: '_hangTrend', data: linearTrendline(hangData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y1' },
+  ], {
+    ...baseOptions({ showLegend: true, timeUnit: 'month' }),
+    plugins: {
+      legend: {
+        display: true,
+        labels: { color: TICK_COLOR, boxWidth: 12, filter: legendFilterTrend },
+      },
+      zoom: {
+        zoom: {
+          wheel: { enabled: true },
+          pinch: { enabled: true },
+          mode: 'x',
+        },
+        pan: {
+          enabled: true,
+          mode: 'x',
+        },
+      },
+    },
+    scales: {
+      x: { type: 'time', time: { unit: 'month' }, grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
+      y: { position: 'left', grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'reps', color: TICK_COLOR } },
+      y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'seconds', color: TICK_COLOR } },
+    },
   }));
-  pending.push(createChart('liftChart', 'line', liftDatasets,
-    baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'lbs' })));
 
   // Populate all charts simultaneously so animations start in sync
   requestAnimationFrame(() => {
-    for (const { chart, datasets } of pending) {
-      chart.data.datasets = datasets;
-      chart.options.animation = ANIMATION;
-      chart.update();
-      chart.canvas.closest('.chart-card')?.classList.remove('loading');
+    for (const entry of pending) {
+      if (!entry) continue;
+      entry.chart.data.datasets = entry.datasets;
+      entry.chart.options.animation = ANIMATION;
+      entry.chart.update();
+      entry.chart.canvas.closest('.chart-card')?.classList.remove('loading');
+      // Double-click to reset zoom
+      entry.chart.canvas.addEventListener('dblclick', () => entry.chart.resetZoom());
     }
   });
 }

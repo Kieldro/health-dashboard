@@ -56,7 +56,7 @@ function processBodyFat(bodyfat, measurements) {
 
 // --- Body Measurements ---
 function processMeasurements(measurements) {
-  return measurements.filter(m => m.stomach || m.waist);
+  return measurements.filter(m => m.stomach || m.waist || m.neck);
 }
 
 // --- Running ---
@@ -108,7 +108,12 @@ function processLiftProgression(rows) {
   const byExercise = {};
   for (const r of rows) {
     if (!byExercise[r.exercise]) byExercise[r.exercise] = [];
-    byExercise[r.exercise].push({ date: r.week, weight: r.top_weight, reps: r.top_reps });
+    byExercise[r.exercise].push({
+      date: r.week,
+      weight: r.top_weight,
+      reps: r.top_reps,
+      maxReps: r.max_reps,
+    });
   }
   return byExercise;
 }

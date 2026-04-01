@@ -38,7 +38,7 @@ def api_bodyfat():
 
 def api_measurements():
     return query_db(GARMIN_DB,
-        "SELECT day as date, neck, waist, stomach, hips, chest FROM measurements ORDER BY day")
+        "SELECT day as date, neck, waist, stomach, hips, chest, right_bicep, right_forearm, right_quad, right_calf FROM measurements ORDER BY day")
 
 
 def api_rhr():
@@ -61,11 +61,7 @@ def api_activities():
 
 
 def api_vo2max():
-    return query_db(GARMIN_DB, """
-        SELECT date, vo2max FROM running_activities
-        WHERE vo2max IS NOT NULL
-        ORDER BY date
-    """)
+    return query_db(GARMIN_DB, "SELECT day as date, vo2max FROM vo2max ORDER BY day")
 
 
 def api_workout_volume():
@@ -75,10 +71,15 @@ def api_workout_volume():
 
 def api_lift_progression():
     return query_db(GARMIN_DB, """
-        SELECT week_date as week, exercise, top_weight, top_reps
+        SELECT week_date as week, exercise, top_weight, top_reps, max_reps
         FROM workout_exercises
-        WHERE exercise IN ('leg press', 'chest press', 'lat pulldown', 'dips', 'rdl')
-          AND top_weight IS NOT NULL
+        WHERE exercise IN ('chest press', 'row machine', 'leg press', 'side bend',
+                           'pull ups', 'dead hang', 'dips', 'push ups',
+                           'lateral raise', 'hammer curl',
+                           'rdl barbell', 'rdl dumbbell',
+                           'kelso shrugs', 'calf raise seated', 'calf raise bw')
+          AND (top_weight IS NOT NULL OR max_reps IS NOT NULL)
+          AND (top_reps IS NULL OR top_reps <= 100)
         ORDER BY week_date
     """)
 
@@ -127,6 +128,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("Cache-Control", "no-cache, must-revalidate")
         super().end_headers()
 
     def guess_type(self, path):
