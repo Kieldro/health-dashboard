@@ -32,9 +32,19 @@ export async function loadAllData() {
 
 // --- Weight ---
 function processWeight(rows) {
-  // 7-day moving average
-  const ma7 = movingAverage(rows.map(d => d.weight), 7);
-  return rows.map((d, i) => ({ ...d, ma7: ma7[i] }));
+  // 7-day moving average (calendar-day-based, not entry-based)
+  return rows.map((d, i) => {
+    const cutoff = new Date(d.date);
+    cutoff.setDate(cutoff.getDate() - 6);
+    const cutoffStr = cutoff.toISOString().split('T')[0];
+    const window = [];
+    for (let j = i; j >= 0; j--) {
+      if (rows[j].date < cutoffStr) break;
+      window.push(rows[j].weight);
+    }
+    const ma7 = Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10;
+    return { ...d, ma7 };
+  });
 }
 
 // --- Body Fat ---
@@ -56,28 +66,30 @@ function processBodyFat(bodyfat, measurements) {
 
 // --- Body Measurements ---
 function processMeasurements(measurements) {
-  return measurements.filter(m => m.stomach || m.waist || m.neck);
+  return measurements.filter(m => m.stomach || m.waist || m.neck || m.right_bicep || m.right_forearm || m.right_quad || m.right_calf);
 }
 
 // --- Running ---
 function processRuns(activities) {
-  const runs = activities.map(a => {
-    const distMi = a.distance / 1609.344;
-    const durationMin = a.duration / 60;
-    const paceMinMi = durationMin / distMi;
-    const speedMph = distMi / (durationMin / 60);
-    const ef = speedMph / a.avg_hr;
-    return {
-      date: a.date,
-      distMi: Math.round(distMi * 100) / 100,
-      durationMin: Math.round(durationMin * 10) / 10,
-      paceMinMi: Math.round(paceMinMi * 100) / 100,
-      avgHR: a.avg_hr,
-      maxHR: a.max_hr,
-      speedMph,
-      ef: Math.round(ef * 10000) / 10000,
-    };
-  });
+  const runs = activities
+    .filter(a => a.distance > 0 && a.duration > 0 && a.avg_hr > 0)
+    .map(a => {
+      const distMi = a.distance / 1609.344;
+      const durationMin = a.duration / 60;
+      const paceMinMi = durationMin / distMi;
+      const speedMph = distMi / (durationMin / 60);
+      const ef = speedMph / a.avg_hr;
+      return {
+        date: a.date,
+        distMi: Math.round(distMi * 100) / 100,
+        durationMin: Math.round(durationMin * 10) / 10,
+        paceMinMi: Math.round(paceMinMi * 100) / 100,
+        avgHR: a.avg_hr,
+        maxHR: a.max_hr,
+        speedMph,
+        ef: Math.round(ef * 10000) / 10000,
+      };
+    });
 
   return {
     all: runs,

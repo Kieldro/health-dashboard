@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js?v=f1a4c5d6';
+import { loadAllData } from './data.js';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -14,6 +14,7 @@ const GRID_COLOR = 'rgba(255,255,255,0.06)';
 const TICK_COLOR = '#8b8fa3';
 
 const ANIMATION = { duration: 1000, easing: 'easeOutQuart' };
+const YEAR_START = `${new Date().getFullYear()}-01-01`;
 
 /** Shared defaults for all charts */
 function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {}) {
@@ -43,6 +44,7 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
       x: {
         type: 'time',
         time: { unit: timeUnit },
+        min: YEAR_START,
         grid: { color: GRID_COLOR },
         ticks: { color: TICK_COLOR },
       },
@@ -125,7 +127,18 @@ function createChart(canvasId, type, datasets, options) {
 }
 
 async function init() {
-  const data = await loadAllData();
+  let data;
+  try {
+    data = await loadAllData();
+  } catch (e) {
+    console.error('Failed to load data:', e);
+    document.querySelectorAll('.chart-card.loading').forEach(card => {
+      card.classList.remove('loading');
+      card.querySelector('canvas').style.display = 'none';
+      card.insertAdjacentHTML('beforeend', '<p style="color:#ff6b6b;text-align:center;margin-top:2rem">Failed to load data</p>');
+    });
+    return;
+  }
   const pending = [];
 
   // 1. Weight
@@ -274,6 +287,7 @@ async function init() {
       x: {
         type: 'time',
         time: { unit: 'month' },
+        min: YEAR_START,
         grid: { color: GRID_COLOR },
         ticks: { color: TICK_COLOR },
       },
@@ -445,7 +459,7 @@ async function init() {
     { label: '_rdlDBTrend', data: linearTrendline(rdlDBData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
   ], liftOpts('lbs')));
 
-  // 14. Bodyweight (Pull-ups, Dips, Push-ups + Dead Hang seconds on right axis)
+  // 16. Bodyweight (Pull-ups, Dips, Push-ups + Dead Hang seconds on right axis)
   const pullData = liftData('pull ups');
   const dipsData = liftData('dips');
   const pushData = liftData('push ups');
@@ -460,7 +474,6 @@ async function init() {
     { label: '_pushTrend', data: linearTrendline(pushData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
     { label: 'Calf Raise', data: calfBWData, ...lineDefaults(COLORS.purple), yAxisID: 'y' },
     { label: '_calfBWTrend', data: linearTrendline(calfBWData), ...lineDefaults('rgba(204,93,232,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
-    { label: '_pushTrend', data: linearTrendline(pushData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
     { label: 'Dead Hang (s)', data: hangData, ...lineDefaults(COLORS.blue), yAxisID: 'y1' },
     { label: '_hangTrend', data: linearTrendline(hangData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y1' },
   ], {
@@ -483,11 +496,21 @@ async function init() {
       },
     },
     scales: {
-      x: { type: 'time', time: { unit: 'month' }, grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
+      x: { type: 'time', time: { unit: 'month' }, min: YEAR_START, grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
       y: { position: 'left', grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'reps', color: TICK_COLOR } },
       y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'seconds', color: TICK_COLOR } },
     },
   }));
+
+  // 17. Neck (Extension + Flexion)
+  const neckExtData = liftData('neck extension');
+  const neckFlexData = liftData('neck flexion');
+  pending.push(createChart('neckChart', 'line', [
+    { label: 'Neck Extension', data: neckExtData, ...liftDefaults(COLORS.red) },
+    { label: '_neckExtTrend', data: linearTrendline(neckExtData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    { label: 'Neck Flexion', data: neckFlexData, ...liftDefaults(COLORS.blue) },
+    { label: '_neckFlexTrend', data: linearTrendline(neckFlexData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+  ], liftOpts('lbs')));
 
   // Populate all charts simultaneously so animations start in sync
   requestAnimationFrame(() => {

@@ -73,13 +73,8 @@ def api_lift_progression():
     return query_db(GARMIN_DB, """
         SELECT week_date as week, exercise, top_weight, top_reps, max_reps
         FROM workout_exercises
-        WHERE exercise IN ('chest press', 'row machine', 'leg press', 'side bend',
-                           'pull ups', 'dead hang', 'dips', 'push ups',
-                           'lateral raise', 'hammer curl',
-                           'rdl barbell', 'rdl dumbbell',
-                           'kelso shrugs', 'calf raise seated', 'calf raise bw')
-          AND (top_weight IS NOT NULL OR max_reps IS NOT NULL)
-          AND (top_reps IS NULL OR top_reps <= 100)
+        WHERE (top_weight IS NOT NULL OR max_reps IS NOT NULL)
+          AND (top_reps IS NULL OR top_reps <= 500)
         ORDER BY week_date
     """)
 
