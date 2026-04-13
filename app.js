@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js';
+import { loadAllData } from './data.js?v=20260412';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -27,6 +27,9 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
       legend: {
         display: showLegend,
         labels: { color: TICK_COLOR, boxWidth: 12 },
+      },
+      tooltip: {
+        filter: (item) => !item.dataset.label?.startsWith('_'),
       },
       zoom: {
         zoom: {
@@ -172,47 +175,55 @@ async function init() {
   ], baseOptions({ showLegend: true, yLabel: '%' })));
 
   // 3. Measurements (stomach, waist & neck)
-  pending.push(createChart('measurementsChart', 'line', [
-    {
-      label: 'Stomach',
-      data: data.bodyMeasurements.filter(d => d.stomach != null).map(d => ({ x: d.date, y: d.stomach })),
-      ...lineDefaults(COLORS.purple),
-    },
-    {
-      label: 'Waist',
-      data: data.bodyMeasurements.filter(d => d.waist != null).map(d => ({ x: d.date, y: d.waist })),
-      ...lineDefaults(COLORS.yellow),
-    },
-    {
-      label: 'Neck',
-      data: data.bodyMeasurements.filter(d => d.neck != null).map(d => ({ x: d.date, y: d.neck })),
-      ...lineDefaults(COLORS.green),
-    },
-  ], baseOptions({ showLegend: true, yLabel: 'inches' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: 'inches' });
+    opts.interaction = { mode: 'nearest', intersect: false };
+    pending.push(createChart('measurementsChart', 'line', [
+      {
+        label: 'Stomach',
+        data: data.bodyMeasurements.filter(d => d.stomach != null).map(d => ({ x: d.date, y: d.stomach })),
+        ...lineDefaults(COLORS.purple),
+      },
+      {
+        label: 'Waist',
+        data: data.bodyMeasurements.filter(d => d.waist != null).map(d => ({ x: d.date, y: d.waist })),
+        ...lineDefaults(COLORS.yellow),
+      },
+      {
+        label: 'Neck',
+        data: data.bodyMeasurements.filter(d => d.neck != null).map(d => ({ x: d.date, y: d.neck })),
+        ...lineDefaults(COLORS.green),
+      },
+    ], opts));
+  })();
 
   // 3b. Limb Measurements (bicep, forearm, quad, calf)
-  pending.push(createChart('limbChart', 'line', [
-    {
-      label: 'Bicep',
-      data: data.bodyMeasurements.filter(d => d.right_bicep != null).map(d => ({ x: d.date, y: d.right_bicep })),
-      ...lineDefaults(COLORS.red),
-    },
-    {
-      label: 'Forearm',
-      data: data.bodyMeasurements.filter(d => d.right_forearm != null).map(d => ({ x: d.date, y: d.right_forearm })),
-      ...lineDefaults(COLORS.blue),
-    },
-    {
-      label: 'Quad',
-      data: data.bodyMeasurements.filter(d => d.right_quad != null).map(d => ({ x: d.date, y: d.right_quad })),
-      ...lineDefaults(COLORS.green),
-    },
-    {
-      label: 'Calf',
-      data: data.bodyMeasurements.filter(d => d.right_calf != null).map(d => ({ x: d.date, y: d.right_calf })),
-      ...lineDefaults(COLORS.purple),
-    },
-  ], baseOptions({ showLegend: true, yLabel: 'inches' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: 'inches' });
+    opts.interaction = { mode: 'nearest', intersect: false };
+    pending.push(createChart('limbChart', 'line', [
+      {
+        label: 'Bicep',
+        data: data.bodyMeasurements.filter(d => d.right_bicep != null).map(d => ({ x: d.date, y: d.right_bicep })),
+        ...lineDefaults(COLORS.red),
+      },
+      {
+        label: 'Forearm',
+        data: data.bodyMeasurements.filter(d => d.right_forearm != null).map(d => ({ x: d.date, y: d.right_forearm })),
+        ...lineDefaults(COLORS.blue),
+      },
+      {
+        label: 'Quad',
+        data: data.bodyMeasurements.filter(d => d.right_quad != null).map(d => ({ x: d.date, y: d.right_quad })),
+        ...lineDefaults(COLORS.green),
+      },
+      {
+        label: 'Calf',
+        data: data.bodyMeasurements.filter(d => d.right_calf != null).map(d => ({ x: d.date, y: d.right_calf })),
+        ...lineDefaults(COLORS.purple),
+      },
+    ], opts));
+  })();
 
   // 4. Resting Heart Rate
   pending.push(createChart('rhrChart', 'line', [
@@ -374,7 +385,7 @@ async function init() {
   const GYM_START = '2026-01-01';
   function liftData(exercise, filterDate) {
     const points = data.liftProgression[exercise] || [];
-    const isRepsOnly = ['pull ups', 'push ups', 'dips', 'v ups', 'calf raise bw'].includes(exercise);
+    const isRepsOnly = ['pull ups', 'push ups', 'dips', 'v ups', 'calf raise bw', 'neck extension', 'neck flexion'].includes(exercise);
     const isSeconds = exercise === 'dead hang';
     return points
       .filter(p => !filterDate || p.date >= filterDate)
@@ -401,13 +412,13 @@ async function init() {
   }
   function liftOpts(yLabel) {
     const opts = baseOptions({ showLegend: true, timeUnit: 'month', yLabel });
+    opts.interaction = { mode: 'nearest', intersect: false };
     opts.plugins.legend.labels.filter = legendFilterTrend;
-    opts.plugins.tooltip = {
-      callbacks: {
-        afterLabel: (ctx) => {
-          const reps = ctx.raw?.reps;
-          return reps ? `Reps: ${reps}` : '';
-        },
+    opts.plugins.tooltip.filter = (item) => !item.dataset.label?.startsWith('_');
+    opts.plugins.tooltip.callbacks = {
+      afterLabel: (ctx) => {
+        const reps = ctx.raw?.reps;
+        return reps ? `Reps: ${reps}` : '';
       },
     };
     return opts;
@@ -476,31 +487,18 @@ async function init() {
     { label: '_calfBWTrend', data: linearTrendline(calfBWData), ...lineDefaults('rgba(204,93,232,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
     { label: 'Dead Hang (s)', data: hangData, ...lineDefaults(COLORS.blue), yAxisID: 'y1' },
     { label: '_hangTrend', data: linearTrendline(hangData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y1' },
-  ], {
-    ...baseOptions({ showLegend: true, timeUnit: 'month' }),
-    plugins: {
-      legend: {
-        display: true,
-        labels: { color: TICK_COLOR, boxWidth: 12, filter: legendFilterTrend },
-      },
-      zoom: {
-        zoom: {
-          wheel: { enabled: true },
-          pinch: { enabled: true },
-          mode: 'x',
-        },
-        pan: {
-          enabled: true,
-          mode: 'x',
-        },
-      },
-    },
-    scales: {
+  ], (() => {
+    const opts = baseOptions({ showLegend: true, timeUnit: 'month' });
+    opts.interaction = { mode: 'nearest', intersect: false };
+    opts.plugins.legend.labels.filter = legendFilterTrend;
+    opts.plugins.tooltip.filter = (item) => !item.dataset.label?.startsWith('_');
+    opts.scales = {
       x: { type: 'time', time: { unit: 'month' }, min: YEAR_START, grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
       y: { position: 'left', grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'reps', color: TICK_COLOR } },
       y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'seconds', color: TICK_COLOR } },
-    },
-  }));
+    };
+    return opts;
+  })()));
 
   // 17. Neck (Extension + Flexion)
   const neckExtData = liftData('neck extension');
@@ -510,7 +508,7 @@ async function init() {
     { label: '_neckExtTrend', data: linearTrendline(neckExtData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
     { label: 'Neck Flexion', data: neckFlexData, ...liftDefaults(COLORS.blue) },
     { label: '_neckFlexTrend', data: linearTrendline(neckFlexData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
-  ], liftOpts('lbs')));
+  ], liftOpts('reps')));
 
   // Populate all charts simultaneously so animations start in sync
   requestAnimationFrame(() => {
