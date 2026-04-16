@@ -16,6 +16,14 @@
   <header>
     <h1>Health Dashboard</h1>
     <p class="subtitle">Ian's metrics</p>
+    <div class="range-presets" id="rangePresets" role="tablist" aria-label="Time range">
+      <button type="button" data-range="1M">1M</button>
+      <button type="button" data-range="3M">3M</button>
+      <button type="button" data-range="6M">6M</button>
+      <button type="button" data-range="YTD" class="active">YTD</button>
+      <button type="button" data-range="1Y">1Y</button>
+      <button type="button" data-range="All">All</button>
+    </div>
   </header>
   <main>
     <section class="chart-grid">
@@ -94,5 +102,15 @@
     </section>
   </main>
   <script>document.write('<script type="module" src="app.js?v=' + Date.now() + '"><\/script>');</script>
+  <script>
+    // Auto-refresh: reload when tab is revisited after 1hr, or every 6hrs if left open
+    (function() {
+      var loaded = Date.now();
+      document.addEventListener('visibilitychange', function() {
+        if (!document.hidden && Date.now() - loaded > 3600000) location.reload();
+      });
+      setInterval(function() { location.reload(); }, 21600000);
+    })();
+  </script>
 </body>
 </html>

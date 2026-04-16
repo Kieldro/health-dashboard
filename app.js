@@ -14,7 +14,39 @@ const GRID_COLOR = 'rgba(255,255,255,0.06)';
 const TICK_COLOR = '#8b8fa3';
 
 const ANIMATION = { duration: 1000, easing: 'easeOutQuart' };
-const YEAR_START = `${new Date().getFullYear()}-01-01`;
+
+function isoDaysAgo(days) {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().split('T')[0];
+}
+
+/** Compute chart x-axis min for a preset key. `null` means "show all". */
+function rangeMin(preset) {
+  switch (preset) {
+    case '1M': return isoDaysAgo(30);
+    case '3M': return isoDaysAgo(90);
+    case '6M': return isoDaysAgo(180);
+    case '1Y': return isoDaysAgo(365);
+    case 'All': return null;
+    case 'YTD':
+    default: return `${new Date().getFullYear()}-01-01`;
+  }
+}
+
+let currentMin = rangeMin('YTD');
+const allCharts = [];
+
+/** Shared x-scale so every chart reads `currentMin` from one place. */
+function xScale(timeUnit = 'month') {
+  return {
+    type: 'time',
+    time: { unit: timeUnit },
+    min: currentMin,
+    grid: { color: GRID_COLOR },
+    ticks: { color: TICK_COLOR },
+  };
+}
 
 /** Shared defaults for all charts */
 function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {}) {
@@ -44,19 +76,26 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
       },
     },
     scales: {
-      x: {
-        type: 'time',
-        time: { unit: timeUnit },
-        min: YEAR_START,
-        grid: { color: GRID_COLOR },
-        ticks: { color: TICK_COLOR },
-      },
+      x: xScale(timeUnit),
       y: {
         grid: { color: GRID_COLOR },
         ticks: { color: TICK_COLOR },
         ...(yLabel ? { title: { display: true, text: yLabel, color: TICK_COLOR } } : {}),
       },
     },
+  };
+}
+
+/** Hidden trendline dataset (label prefixed with `_` so tooltips/legend skip it). */
+function trendline(label, points, color, opts = {}) {
+  return {
+    label: `_${label}Trend`,
+    data: linearTrendline(points),
+    ...lineDefaults(color),
+    pointRadius: 0,
+    borderDash: [6, 3],
+    tension: 0,
+    ...opts,
   };
 }
 
@@ -261,21 +300,9 @@ async function init() {
 
   // 6. Efficiency Factor + trendline
   const efPoints = data.runs.all.map(d => ({ x: d.date, y: d.ef }));
-  const efTrend = linearTrendline(efPoints);
   pending.push(createChart('efChart', 'line', [
-    {
-      label: 'EF',
-      data: efPoints,
-      ...lineDefaults(COLORS.blue),
-    },
-    {
-      label: 'Trend',
-      data: efTrend,
-      ...lineDefaults(COLORS.yellow),
-      pointRadius: 0,
-      borderDash: [6, 3],
-      tension: 0,
-    },
+    { label: 'EF', data: efPoints, ...lineDefaults(COLORS.blue) },
+    { ...trendline('ef', efPoints, COLORS.yellow), label: 'Trend' },
   ], baseOptions({ showLegend: true })));
 
   // 7. 5K Heart Rate (primary y) + Pace (secondary y)
@@ -295,13 +322,7 @@ async function init() {
   ], {
     ...baseOptions({ showLegend: true }),
     scales: {
-      x: {
-        type: 'time',
-        time: { unit: 'month' },
-        min: YEAR_START,
-        grid: { color: GRID_COLOR },
-        ticks: { color: TICK_COLOR },
-      },
+      x: xScale('month'),
       y: {
         position: 'left',
         grid: { color: GRID_COLOR },
@@ -328,7 +349,6 @@ async function init() {
 
   // 9. Weekly Mileage (bar + trendline)
   const mileagePoints = data.runs.weeklyMileage.map(d => ({ x: d.week, y: d.miles }));
-  const mileageTrend = linearTrendline(mileagePoints);
   pending.push(createChart('weeklyMileageChart', 'bar', [
     {
       label: 'Miles',
@@ -338,34 +358,14 @@ async function init() {
       borderWidth: 1,
       borderRadius: 3,
     },
-    {
-      type: 'line',
-      label: 'Trend',
-      data: mileageTrend,
-      ...lineDefaults(COLORS.green),
-      pointRadius: 0,
-      borderDash: [6, 3],
-      tension: 0,
-    },
+    { ...trendline('mileage', mileagePoints, COLORS.green), label: 'Trend', type: 'line' },
   ], baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' })));
 
   // 10. VO2 Max
   const vo2Points = data.vo2max.map(d => ({ x: d.date, y: d.vo2max }));
-  const vo2Trend = linearTrendline(vo2Points);
   pending.push(createChart('vo2maxChart', 'line', [
-    {
-      label: 'VO2 Max',
-      data: vo2Points,
-      ...lineDefaults(COLORS.green),
-    },
-    {
-      label: 'Trend',
-      data: vo2Trend,
-      ...lineDefaults(COLORS.yellow),
-      pointRadius: 0,
-      borderDash: [6, 3],
-      tension: 0,
-    },
+    { label: 'VO2 Max', data: vo2Points, ...lineDefaults(COLORS.green) },
+    { ...trendline('vo2', vo2Points, COLORS.yellow), label: 'Trend' },
   ], baseOptions({ showLegend: true })));
 
   // 11. Weekly Training Volume
@@ -424,14 +424,22 @@ async function init() {
     return opts;
   }
 
+  const FADED = {
+    red: 'rgba(255,107,107,0.3)',
+    blue: 'rgba(74,158,255,0.3)',
+    green: 'rgba(81,207,102,0.3)',
+    yellow: 'rgba(255,212,59,0.3)',
+    purple: 'rgba(204,93,232,0.3)',
+  };
+
   // 12. Upper Body Machines (Chest Press + Row Machine)
   const chestData = liftData('chest press', GYM_START);
   const rowData = liftData('row machine', GYM_START);
   pending.push(createChart('upperMachineChart', 'line', [
     { label: 'Chest Press', data: chestData, ...liftDefaults(COLORS.red) },
-    { label: '_chestTrend', data: linearTrendline(chestData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('chest', chestData, FADED.red),
     { label: 'Row Machine', data: rowData, ...liftDefaults(COLORS.blue) },
-    { label: '_rowTrend', data: linearTrendline(rowData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('row', rowData, FADED.blue),
   ], liftOpts('lbs')));
 
   // 13. Upper Body DB (Lat Raise, Hammer Curls, Kelso Shrugs)
@@ -440,11 +448,11 @@ async function init() {
   const shrugData = liftData('kelso shrugs');
   pending.push(createChart('upperDBChart', 'line', [
     { label: 'Lat Raise', data: latData, ...liftDefaults(COLORS.green) },
-    { label: '_latTrend', data: linearTrendline(latData), ...lineDefaults('rgba(81,207,102,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('lat', latData, FADED.green),
     { label: 'Hammer Curls', data: curlData, ...liftDefaults(COLORS.yellow) },
-    { label: '_curlTrend', data: linearTrendline(curlData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('curl', curlData, FADED.yellow),
     { label: 'Kelso Shrugs', data: shrugData, ...liftDefaults(COLORS.blue) },
-    { label: '_shrugTrend', data: linearTrendline(shrugData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('shrug', shrugData, FADED.blue),
   ], liftOpts('lbs')));
 
   // 14. Lower Body Machines (Leg Press, Side Bend, Calf Raise)
@@ -453,11 +461,11 @@ async function init() {
   const calfData = liftData('calf raise seated');
   pending.push(createChart('lowerMachineChart', 'line', [
     { label: 'Leg Press', data: legData, ...liftDefaults(COLORS.purple) },
-    { label: '_legTrend', data: linearTrendline(legData), ...lineDefaults('rgba(204,93,232,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('leg', legData, FADED.purple),
     { label: 'Side Bend', data: sideData, ...liftDefaults(COLORS.green) },
-    { label: '_sideTrend', data: linearTrendline(sideData), ...lineDefaults('rgba(81,207,102,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('side', sideData, FADED.green),
     { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
-    { label: '_calfTrend', data: linearTrendline(calfData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('calf', calfData, FADED.yellow),
   ], liftOpts('lbs')));
 
   // 15. Lower Body BB/DB (RDL Barbell + RDL Dumbbell)
@@ -465,9 +473,9 @@ async function init() {
   const rdlDBData = liftData('rdl dumbbell');
   pending.push(createChart('lowerBBDBChart', 'line', [
     { label: 'RDL Barbell', data: rdlBBData, ...liftDefaults(COLORS.red) },
-    { label: '_rdlBBTrend', data: linearTrendline(rdlBBData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('rdlBB', rdlBBData, FADED.red),
     { label: 'RDL Dumbbell', data: rdlDBData, ...liftDefaults(COLORS.yellow) },
-    { label: '_rdlDBTrend', data: linearTrendline(rdlDBData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('rdlDB', rdlDBData, FADED.yellow),
   ], liftOpts('lbs')));
 
   // 16. Bodyweight (Pull-ups, Dips, Push-ups + Dead Hang seconds on right axis)
@@ -478,22 +486,21 @@ async function init() {
   const hangData = liftData('dead hang');
   pending.push(createChart('bodyweightChart', 'line', [
     { label: 'Pull-ups', data: pullData, ...lineDefaults(COLORS.green), yAxisID: 'y' },
-    { label: '_pullTrend', data: linearTrendline(pullData), ...lineDefaults('rgba(81,207,102,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { ...trendline('pull', pullData, FADED.green), yAxisID: 'y' },
     { label: 'Dips', data: dipsData, ...lineDefaults(COLORS.yellow), yAxisID: 'y' },
-    { label: '_dipsTrend', data: linearTrendline(dipsData), ...lineDefaults('rgba(255,212,59,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { ...trendline('dips', dipsData, FADED.yellow), yAxisID: 'y' },
     { label: 'Push-ups', data: pushData, ...lineDefaults(COLORS.red), yAxisID: 'y' },
-    { label: '_pushTrend', data: linearTrendline(pushData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { ...trendline('push', pushData, FADED.red), yAxisID: 'y' },
     { label: 'Calf Raise', data: calfBWData, ...lineDefaults(COLORS.purple), yAxisID: 'y' },
-    { label: '_calfBWTrend', data: linearTrendline(calfBWData), ...lineDefaults('rgba(204,93,232,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y' },
+    { ...trendline('calfBW', calfBWData, FADED.purple), yAxisID: 'y' },
     { label: 'Dead Hang (s)', data: hangData, ...lineDefaults(COLORS.blue), yAxisID: 'y1' },
-    { label: '_hangTrend', data: linearTrendline(hangData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0, yAxisID: 'y1' },
+    { ...trendline('hang', hangData, FADED.blue), yAxisID: 'y1' },
   ], (() => {
     const opts = baseOptions({ showLegend: true, timeUnit: 'month' });
     opts.interaction = { mode: 'nearest', intersect: false };
     opts.plugins.legend.labels.filter = legendFilterTrend;
-    opts.plugins.tooltip.filter = (item) => !item.dataset.label?.startsWith('_');
     opts.scales = {
-      x: { type: 'time', time: { unit: 'month' }, min: YEAR_START, grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR } },
+      x: xScale('month'),
       y: { position: 'left', grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'reps', color: TICK_COLOR } },
       y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'seconds', color: TICK_COLOR } },
     };
@@ -505,9 +512,9 @@ async function init() {
   const neckFlexData = liftData('neck flexion');
   pending.push(createChart('neckChart', 'line', [
     { label: 'Neck Extension', data: neckExtData, ...liftDefaults(COLORS.red) },
-    { label: '_neckExtTrend', data: linearTrendline(neckExtData), ...lineDefaults('rgba(255,107,107,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('neckExt', neckExtData, FADED.red),
     { label: 'Neck Flexion', data: neckFlexData, ...liftDefaults(COLORS.blue) },
-    { label: '_neckFlexTrend', data: linearTrendline(neckFlexData), ...lineDefaults('rgba(74,158,255,0.3)'), pointRadius: 0, borderDash: [6, 3], tension: 0 },
+    trendline('neckFlex', neckFlexData, FADED.blue),
   ], liftOpts('reps')));
 
   // Populate all charts simultaneously so animations start in sync
@@ -518,8 +525,29 @@ async function init() {
       entry.chart.options.animation = ANIMATION;
       entry.chart.update();
       entry.chart.canvas.closest('.chart-card')?.classList.remove('loading');
+      allCharts.push(entry.chart);
       // Double-click to reset zoom
       entry.chart.canvas.addEventListener('dblclick', () => entry.chart.resetZoom());
+    }
+  });
+
+  wireRangePresets();
+}
+
+function wireRangePresets() {
+  const container = document.getElementById('rangePresets');
+  if (!container) return;
+  container.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-range]');
+    if (!btn) return;
+    currentMin = rangeMin(btn.dataset.range);
+    for (const b of container.querySelectorAll('button')) b.classList.toggle('active', b === btn);
+    for (const chart of allCharts) {
+      // resetZoom reverts scale options to construction values — reset first, then apply new min
+      chart.resetZoom('none');
+      if (currentMin == null) delete chart.options.scales.x.min;
+      else chart.options.scales.x.min = currentMin;
+      chart.update('none');
     }
   });
 }
