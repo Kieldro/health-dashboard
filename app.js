@@ -432,12 +432,15 @@ async function init() {
     purple: 'rgba(204,93,232,0.3)',
   };
 
-  // 12. Upper Body Machines (Chest Press + Row Machine)
+  // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine)
   const chestData = liftData('chest press', GYM_START);
+  const inclineData = liftData('incline press', GYM_START);
   const rowData = liftData('row machine', GYM_START);
   pending.push(createChart('upperMachineChart', 'line', [
     { label: 'Chest Press', data: chestData, ...liftDefaults(COLORS.red) },
     trendline('chest', chestData, FADED.red),
+    { label: 'Incline Press', data: inclineData, ...liftDefaults(COLORS.green) },
+    trendline('incline', inclineData, FADED.green),
     { label: 'Row Machine', data: rowData, ...liftDefaults(COLORS.blue) },
     trendline('row', rowData, FADED.blue),
   ], liftOpts('lbs')));
