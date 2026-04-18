@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js?v=20260412';
+import { loadAllData } from './data.js?v=20260417';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -169,6 +169,13 @@ function createChart(canvasId, type, datasets, options) {
 }
 
 async function init() {
+  fetch('/api/version')
+    .then(r => r.ok ? r.json() : null)
+    .then(v => {
+      if (v) document.getElementById('version').textContent = `v${v.date} · ${v.sha}`;
+    })
+    .catch(() => {});
+
   let data;
   try {
     data = await loadAllData();
@@ -383,17 +390,36 @@ async function init() {
   // 12-14. Combined exercise progression charts
   // Machine exercises: filter to 2026+ (new gym)
   const GYM_START = '2026-01-01';
+  const REPS_ONLY = ['pull ups', 'push ups', 'dips', 'v ups', 'calf raise bw', 'neck extension', 'neck flexion'];
+  function exerciseY(exercise, { weight, reps, maxReps }) {
+    if (REPS_ONLY.includes(exercise)) return maxReps ?? reps;
+    if (exercise === 'dead hang') return reps;
+    return weight;
+  }
   function liftData(exercise, filterDate) {
     const points = data.liftProgression[exercise] || [];
-    const isRepsOnly = ['pull ups', 'push ups', 'dips', 'v ups', 'calf raise bw', 'neck extension', 'neck flexion'].includes(exercise);
-    const isSeconds = exercise === 'dead hang';
     return points
       .filter(p => !filterDate || p.date >= filterDate)
-      .map(p => ({
-        x: p.date,
-        y: isRepsOnly ? p.maxReps : isSeconds ? p.reps : p.weight,
-        reps: p.reps,
-      })).filter(p => p.y != null && p.y > 0);
+      .map(p => ({ x: p.date, y: exerciseY(exercise, p), reps: p.reps }))
+      .filter(p => p.y != null && p.y > 0);
+  }
+  /** Scatter of every individual set, overlaid at the chart's same y mapping. */
+  function setsScatter(exercise, color, filterDate) {
+    const sets = data.workoutSets[exercise] || [];
+    const points = sets
+      .filter(s => !filterDate || s.week >= filterDate)
+      .map(s => ({ x: s.week, y: exerciseY(exercise, { weight: s.weight, reps: s.reps, maxReps: s.reps }), reps: s.reps }))
+      .filter(p => p.y != null && p.y > 0);
+    return {
+      label: `_${exercise}Sets`,
+      data: points,
+      type: 'scatter',
+      backgroundColor: color,
+      borderColor: 'transparent',
+      pointRadius: repsPointRadius,
+      pointHoverRadius: 0,
+      showLine: false,
+    };
   }
   const legendFilterTrend = (item) => !item.text.startsWith('_');
 
@@ -437,6 +463,9 @@ async function init() {
   const inclineData = liftData('incline press', GYM_START);
   const rowData = liftData('row machine', GYM_START);
   pending.push(createChart('upperMachineChart', 'line', [
+    setsScatter('chest press', FADED.red, GYM_START),
+    setsScatter('incline press', FADED.green, GYM_START),
+    setsScatter('row machine', FADED.blue, GYM_START),
     { label: 'Chest Press', data: chestData, ...liftDefaults(COLORS.red) },
     trendline('chest', chestData, FADED.red),
     { label: 'Incline Press', data: inclineData, ...liftDefaults(COLORS.green) },
@@ -450,6 +479,9 @@ async function init() {
   const curlData = liftData('hammer curl');
   const shrugData = liftData('kelso shrugs');
   pending.push(createChart('upperDBChart', 'line', [
+    setsScatter('lateral raise', FADED.green),
+    setsScatter('hammer curl', FADED.yellow),
+    setsScatter('kelso shrugs', FADED.blue),
     { label: 'Lat Raise', data: latData, ...liftDefaults(COLORS.green) },
     trendline('lat', latData, FADED.green),
     { label: 'Hammer Curls', data: curlData, ...liftDefaults(COLORS.yellow) },
@@ -463,6 +495,9 @@ async function init() {
   const sideData = liftData('side bend');
   const calfData = liftData('calf raise seated');
   pending.push(createChart('lowerMachineChart', 'line', [
+    setsScatter('leg press', FADED.purple, GYM_START),
+    setsScatter('side bend', FADED.green),
+    setsScatter('calf raise seated', FADED.yellow),
     { label: 'Leg Press', data: legData, ...liftDefaults(COLORS.purple) },
     trendline('leg', legData, FADED.purple),
     { label: 'Side Bend', data: sideData, ...liftDefaults(COLORS.green) },
@@ -475,6 +510,8 @@ async function init() {
   const rdlBBData = liftData('rdl barbell');
   const rdlDBData = liftData('rdl dumbbell');
   pending.push(createChart('lowerBBDBChart', 'line', [
+    setsScatter('rdl barbell', FADED.red),
+    setsScatter('rdl dumbbell', FADED.yellow),
     { label: 'RDL Barbell', data: rdlBBData, ...liftDefaults(COLORS.red) },
     trendline('rdlBB', rdlBBData, FADED.red),
     { label: 'RDL Dumbbell', data: rdlDBData, ...liftDefaults(COLORS.yellow) },
@@ -488,6 +525,11 @@ async function init() {
   const calfBWData = liftData('calf raise bw');
   const hangData = liftData('dead hang');
   pending.push(createChart('bodyweightChart', 'line', [
+    { ...setsScatter('pull ups', FADED.green), yAxisID: 'y' },
+    { ...setsScatter('dips', FADED.yellow), yAxisID: 'y' },
+    { ...setsScatter('push ups', FADED.red), yAxisID: 'y' },
+    { ...setsScatter('calf raise bw', FADED.purple), yAxisID: 'y' },
+    { ...setsScatter('dead hang', FADED.blue), yAxisID: 'y1' },
     { label: 'Pull-ups', data: pullData, ...lineDefaults(COLORS.green), yAxisID: 'y' },
     { ...trendline('pull', pullData, FADED.green), yAxisID: 'y' },
     { label: 'Dips', data: dipsData, ...lineDefaults(COLORS.yellow), yAxisID: 'y' },
@@ -514,6 +556,8 @@ async function init() {
   const neckExtData = liftData('neck extension');
   const neckFlexData = liftData('neck flexion');
   pending.push(createChart('neckChart', 'line', [
+    setsScatter('neck extension', FADED.red),
+    setsScatter('neck flexion', FADED.blue),
     { label: 'Neck Extension', data: neckExtData, ...liftDefaults(COLORS.red) },
     trendline('neckExt', neckExtData, FADED.red),
     { label: 'Neck Flexion', data: neckFlexData, ...liftDefaults(COLORS.blue) },

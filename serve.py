@@ -4,6 +4,7 @@
 import json
 import os
 import sqlite3
+import subprocess
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 PORT = 8888
@@ -79,6 +80,28 @@ def api_lift_progression():
     """)
 
 
+def api_workout_sets():
+    return query_db(GARMIN_DB, """
+        SELECT week_date as week, exercise, set_num, weight, reps
+        FROM workout_sets
+        WHERE reps IS NOT NULL AND reps > 0 AND reps <= 500
+        ORDER BY week_date, exercise, set_num
+    """)
+
+
+def api_version():
+    def git(*args):
+        return subprocess.check_output(
+            ["git", "-C", STATIC_DIR, *args],
+            text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    try:
+        return {"sha": git("rev-parse", "--short", "HEAD"),
+                "date": git("log", "-1", "--format=%cs", "HEAD")}
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return {"sha": "dev", "date": "unknown"}
+
+
 API_ROUTES = {
     "/api/weight": api_weight,
     "/api/bodyfat": api_bodyfat,
@@ -89,6 +112,8 @@ API_ROUTES = {
     "/api/vo2max": api_vo2max,
     "/api/workout-volume": api_workout_volume,
     "/api/lift-progression": api_lift_progression,
+    "/api/workout-sets": api_workout_sets,
+    "/api/version": api_version,
 }
 
 

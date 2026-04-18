@@ -5,7 +5,7 @@ async function fetchJSON(path) {
 }
 
 export async function loadAllData() {
-  const [weight, bodyfat, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression] = await Promise.all([
+  const [weight, bodyfat, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets] = await Promise.all([
     fetchJSON('/api/weight'),
     fetchJSON('/api/bodyfat'),
     fetchJSON('/api/measurements'),
@@ -15,6 +15,7 @@ export async function loadAllData() {
     fetchJSON('/api/vo2max'),
     fetchJSON('/api/workout-volume'),
     fetchJSON('/api/lift-progression'),
+    fetchJSON('/api/workout-sets'),
   ]);
 
   return {
@@ -27,6 +28,7 @@ export async function loadAllData() {
     vo2max,
     workoutVolume,
     liftProgression: processLiftProgression(liftProgression),
+    workoutSets: processWorkoutSets(workoutSets),
   };
 }
 
@@ -126,6 +128,16 @@ function processLiftProgression(rows) {
       reps: r.top_reps,
       maxReps: r.max_reps,
     });
+  }
+  return byExercise;
+}
+
+// --- Per-Set Workout Data ---
+function processWorkoutSets(rows) {
+  const byExercise = {};
+  for (const r of rows) {
+    if (!byExercise[r.exercise]) byExercise[r.exercise] = [];
+    byExercise[r.exercise].push({ week: r.week, weight: r.weight, reps: r.reps });
   }
   return byExercise;
 }
