@@ -458,20 +458,24 @@ async function init() {
     purple: 'rgba(204,93,232,0.3)',
   };
 
-  // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine)
+  // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine + Cable Row)
   const chestData = liftData('chest press', GYM_START);
   const inclineData = liftData('incline press', GYM_START);
   const rowData = liftData('row machine', GYM_START);
+  const cableRowData = liftData('cable row', GYM_START);
   pending.push(createChart('upperMachineChart', 'line', [
     setsScatter('chest press', FADED.red, GYM_START),
     setsScatter('incline press', FADED.green, GYM_START),
     setsScatter('row machine', FADED.blue, GYM_START),
+    setsScatter('cable row', FADED.yellow, GYM_START),
     { label: 'Chest Press', data: chestData, ...liftDefaults(COLORS.red) },
     trendline('chest', chestData, FADED.red),
     { label: 'Incline Press', data: inclineData, ...liftDefaults(COLORS.green) },
     trendline('incline', inclineData, FADED.green),
     { label: 'Row Machine', data: rowData, ...liftDefaults(COLORS.blue) },
     trendline('row', rowData, FADED.blue),
+    { label: 'Cable Row', data: cableRowData, ...liftDefaults(COLORS.yellow) },
+    trendline('cableRow', cableRowData, FADED.yellow),
   ], liftOpts('lbs')));
 
   // 13. Upper Body DB (Lat Raise, Hammer Curls, Kelso Shrugs)
