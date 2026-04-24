@@ -169,6 +169,11 @@ function createChart(canvasId, type, datasets, options) {
 }
 
 async function init() {
+  // Activate the target page BEFORE charts are created so their containers have
+  // real dimensions — Chart.js with maintainAspectRatio:false can't size inside
+  // a display:none parent, and resize() later won't always recover.
+  wirePageRouter();
+
   fetch('/api/version')
     .then(r => r.ok ? r.json() : null)
     .then(v => {
@@ -583,6 +588,27 @@ async function init() {
   });
 
   wireRangePresets();
+}
+
+function wirePageRouter() {
+  const pages = ['body', 'running', 'lifts'];
+  const navLinks = document.querySelectorAll('#pageNav a');
+  const activate = () => {
+    const hash = location.hash.slice(1);
+    const target = pages.includes(hash) ? hash : 'body';
+    for (const sec of document.querySelectorAll('.page')) {
+      sec.classList.toggle('active', sec.id === `page-${target}`);
+    }
+    for (const a of navLinks) {
+      a.classList.toggle('active', a.getAttribute('href') === `#${target}`);
+    }
+    // Chart.js charts that were hidden at init rendered at 0×0 — resize on activate.
+    for (const chart of allCharts) {
+      if (chart.canvas.closest('.page')?.id === `page-${target}`) chart.resize();
+    }
+  };
+  window.addEventListener('hashchange', activate);
+  activate();
 }
 
 function wireRangePresets() {

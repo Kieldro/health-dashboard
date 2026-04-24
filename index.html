@@ -16,6 +16,11 @@
   <header>
     <h1>Health Dashboard</h1>
     <p class="subtitle">Ian's metrics <span class="version" id="version"></span></p>
+    <nav class="page-nav" id="pageNav" aria-label="Pages">
+      <a href="#body">Body</a>
+      <a href="#running">Running</a>
+      <a href="#lifts">Lifts</a>
+    </nav>
     <div class="range-presets" id="rangePresets" role="tablist" aria-label="Time range">
       <button type="button" data-range="1M">1M</button>
       <button type="button" data-range="3M">3M</button>
@@ -26,7 +31,7 @@
     </div>
   </header>
   <main>
-    <section class="chart-grid">
+    <section id="page-body" class="chart-grid page active">
       <div class="chart-card loading">
         <h2>Weight Trend</h2>
         <canvas id="weightChart"></canvas>
@@ -51,6 +56,8 @@
         <h2>HRV (Overnight Avg)</h2>
         <canvas id="hrvChart"></canvas>
       </div>
+    </section>
+    <section id="page-running" class="chart-grid page">
       <div class="chart-card loading">
         <h2>Running Efficiency Factor</h2>
         <canvas id="efChart"></canvas>
@@ -71,6 +78,8 @@
         <h2>VO2 Max</h2>
         <canvas id="vo2maxChart"></canvas>
       </div>
+    </section>
+    <section id="page-lifts" class="chart-grid page">
       <div class="chart-card loading">
         <h2>Weekly Training Volume</h2>
         <canvas id="volumeChart"></canvas>
