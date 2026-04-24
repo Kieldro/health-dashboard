@@ -499,16 +499,20 @@ async function init() {
     trendline('shrug', shrugData, FADED.blue),
   ], liftOpts('lbs')));
 
-  // 14. Lower Body Machines (Leg Press, Side Bend, Calf Raise)
+  // 14. Lower Body Machines (Leg Press, Leg Curl, Side Bend, Calf Raise)
   const legData = liftData('leg press', GYM_START);
+  const legCurlData = liftData('leg curl', GYM_START);
   const sideData = liftData('side bend');
   const calfData = liftData('calf raise seated');
   pending.push(createChart('lowerMachineChart', 'line', [
     setsScatter('leg press', FADED.purple, GYM_START),
+    setsScatter('leg curl', FADED.blue, GYM_START),
     setsScatter('side bend', FADED.green),
     setsScatter('calf raise seated', FADED.yellow),
     { label: 'Leg Press', data: legData, ...liftDefaults(COLORS.purple) },
     trendline('leg', legData, FADED.purple),
+    { label: 'Leg Curl (unilateral)', data: legCurlData, ...liftDefaults(COLORS.blue) },
+    trendline('legCurl', legCurlData, FADED.blue),
     { label: 'Side Bend', data: sideData, ...liftDefaults(COLORS.green) },
     trendline('side', sideData, FADED.green),
     { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
