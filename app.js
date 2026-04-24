@@ -6,6 +6,7 @@ const COLORS = {
   green: '#51cf66',
   yellow: '#ffd43b',
   purple: '#cc5de8',
+  orange: '#ff922b',
   blueFaded: 'rgba(74,158,255,0.3)',
   blueBar: 'rgba(74,158,255,0.7)',
 };
@@ -461,6 +462,7 @@ async function init() {
     green: 'rgba(81,207,102,0.3)',
     yellow: 'rgba(255,212,59,0.3)',
     purple: 'rgba(204,93,232,0.3)',
+    orange: 'rgba(255,146,43,0.3)',
   };
 
   // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine + Cable Row)
@@ -499,20 +501,28 @@ async function init() {
     trendline('shrug', shrugData, FADED.blue),
   ], liftOpts('lbs')));
 
-  // 14. Lower Body Machines (Leg Press, Leg Curl, Side Bend, Calf Raise)
+  // 14. Lower Body Machines (Leg Press, Leg Curl, Abductors, Adductors, Side Bend, Calf Raise)
   const legData = liftData('leg press', GYM_START);
   const legCurlData = liftData('leg curl', GYM_START);
+  const abdData = liftData('abductors', GYM_START);
+  const addData = liftData('adductors', GYM_START);
   const sideData = liftData('side bend');
   const calfData = liftData('calf raise seated');
   pending.push(createChart('lowerMachineChart', 'line', [
     setsScatter('leg press', FADED.purple, GYM_START),
     setsScatter('leg curl', FADED.blue, GYM_START),
+    setsScatter('abductors', FADED.orange, GYM_START),
+    setsScatter('adductors', FADED.red, GYM_START),
     setsScatter('side bend', FADED.green),
     setsScatter('calf raise seated', FADED.yellow),
     { label: 'Leg Press', data: legData, ...liftDefaults(COLORS.purple) },
     trendline('leg', legData, FADED.purple),
     { label: 'Leg Curl (unilateral)', data: legCurlData, ...liftDefaults(COLORS.blue) },
     trendline('legCurl', legCurlData, FADED.blue),
+    { label: 'Abductors', data: abdData, ...liftDefaults(COLORS.orange) },
+    trendline('abd', abdData, FADED.orange),
+    { label: 'Adductors', data: addData, ...liftDefaults(COLORS.red) },
+    trendline('add', addData, FADED.red),
     { label: 'Side Bend', data: sideData, ...liftDefaults(COLORS.green) },
     trendline('side', sideData, FADED.green),
     { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
