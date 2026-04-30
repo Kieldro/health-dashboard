@@ -89,6 +89,17 @@ def api_workout_sets():
     """)
 
 
+def api_hr_recovery():
+    path = os.path.expanduser("~/garmin-sync/data/master/hr_recovery.json")
+    with open(path) as f:
+        rows = json.load(f)
+    return [
+        {"date": r["date"], "recovery": r["avg_recovery_60s"], "name": r.get("name", "")}
+        for r in rows
+        if r.get("avg_recovery_60s") is not None
+    ]
+
+
 def api_version():
     def git(*args):
         return subprocess.check_output(
@@ -113,6 +124,7 @@ API_ROUTES = {
     "/api/workout-volume": api_workout_volume,
     "/api/lift-progression": api_lift_progression,
     "/api/workout-sets": api_workout_sets,
+    "/api/hr-recovery": api_hr_recovery,
     "/api/version": api_version,
 }
 

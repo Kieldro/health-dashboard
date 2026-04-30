@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js?v=20260417';
+import { loadAllData } from './data.js?v=20260430';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -380,6 +380,13 @@ async function init() {
     { label: 'VO2 Max', data: vo2Points, ...lineDefaults(COLORS.green) },
     { ...trendline('vo2', vo2Points, COLORS.yellow), label: 'Trend' },
   ], baseOptions({ showLegend: true })));
+
+  // 10b. HR Recovery (60s drop after hard intervals — higher = better fitness)
+  const hrRecoveryPoints = data.hrRecovery.map(d => ({ x: d.date, y: d.recovery }));
+  pending.push(createChart('hrRecoveryChart', 'line', [
+    { label: '60s drop', data: hrRecoveryPoints, ...lineDefaults(COLORS.red) },
+    { ...trendline('hrRecovery', hrRecoveryPoints, COLORS.yellow), label: 'Trend' },
+  ], baseOptions({ showLegend: true, yLabel: 'bpm' })));
 
   // 11. Weekly Training Volume
   pending.push(createChart('volumeChart', 'bar', [
