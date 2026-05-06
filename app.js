@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js?v=20260430';
+import { loadAllData } from './data.js?v=20260506';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -209,6 +209,12 @@ async function init() {
       label: '7-day MA',
       data: data.weight.map(d => ({ x: d.date, y: d.ma7 })),
       ...lineDefaults(COLORS.blue),
+      pointRadius: 0,
+    },
+    {
+      label: '30-day MA',
+      data: data.weight.map(d => ({ x: d.date, y: d.ma30 })),
+      ...lineDefaults(COLORS.yellow),
       pointRadius: 0,
     },
   ], baseOptions({ showLegend: true, yLabel: 'lbs' })));

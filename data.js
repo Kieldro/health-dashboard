@@ -36,19 +36,19 @@ export async function loadAllData() {
 
 // --- Weight ---
 function processWeight(rows) {
-  // 7-day moving average (calendar-day-based, not entry-based)
-  return rows.map((d, i) => {
-    const cutoff = new Date(d.date);
-    cutoff.setDate(cutoff.getDate() - 6);
+  // Calendar-day-based moving averages (not entry-based)
+  const calendarMA = (i, days) => {
+    const cutoff = new Date(rows[i].date);
+    cutoff.setDate(cutoff.getDate() - (days - 1));
     const cutoffStr = cutoff.toISOString().split('T')[0];
     const window = [];
     for (let j = i; j >= 0; j--) {
       if (rows[j].date < cutoffStr) break;
       window.push(rows[j].weight);
     }
-    const ma7 = Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10;
-    return { ...d, ma7 };
-  });
+    return Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10;
+  };
+  return rows.map((d, i) => ({ ...d, ma7: calendarMA(i, 7), ma30: calendarMA(i, 30) }));
 }
 
 // --- Body Fat ---
