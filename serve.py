@@ -5,6 +5,7 @@ import json
 import os
 import sqlite3
 import subprocess
+from datetime import datetime, timedelta
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 PORT = 8888
@@ -89,6 +90,57 @@ def api_workout_sets():
     """)
 
 
+# HRmax used for %HRmax-based zone bins. Set from observed peak HR (~199 bpm).
+HRMAX = 200
+ZONE_BOUNDS = [(0.50, 0.60), (0.60, 0.70), (0.70, 0.80), (0.80, 0.90), (0.90, 9.99)]
+_zone_cache = {"mtime": 0, "data": None}
+
+
+def api_zone_minutes():
+    """Bin per-second HR samples from strava_streams into Z1-Z5 minutes per week."""
+    streams_dir = os.path.expanduser("~/garmin-sync/data/master/strava_streams")
+    activities_path = os.path.expanduser("~/garmin-sync/data/master/strava_activities.json")
+
+    # Cache invalidates when either the activities file or streams dir mtime changes
+    sig = max(os.path.getmtime(activities_path), os.path.getmtime(streams_dir))
+    if _zone_cache["data"] is not None and _zone_cache["mtime"] == sig:
+        return _zone_cache["data"]
+
+    with open(activities_path) as f:
+        id_to_date = {str(a["id"]): a["start_date_local"][:10]
+                      for a in json.load(f) if a.get("start_date_local")}
+
+    by_week = {}
+    for fname in os.listdir(streams_dir):
+        if not fname.endswith(".json"):
+            continue
+        date = id_to_date.get(fname[:-5])
+        if not date:
+            continue
+        with open(os.path.join(streams_dir, fname)) as f:
+            hr = json.load(f).get("heartrate") or []
+        if not hr:
+            continue
+        d = datetime.strptime(date, "%Y-%m-%d")
+        week = (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+        zones = by_week.setdefault(week, [0, 0, 0, 0, 0])
+        for h in hr:
+            pct = h / HRMAX
+            for i, (lo, hi) in enumerate(ZONE_BOUNDS):
+                if lo <= pct < hi:
+                    zones[i] += 1
+                    break
+
+    result = [
+        {"week": w, "z1": round(z[0]/60, 1), "z2": round(z[1]/60, 1),
+         "z3": round(z[2]/60, 1), "z4": round(z[3]/60, 1), "z5": round(z[4]/60, 1)}
+        for w, z in sorted(by_week.items())
+    ]
+    _zone_cache["mtime"] = sig
+    _zone_cache["data"] = result
+    return result
+
+
 def api_hr_recovery():
     path = os.path.expanduser("~/garmin-sync/data/master/hr_recovery.json")
     with open(path) as f:
@@ -124,6 +176,7 @@ API_ROUTES = {
     "/api/workout-volume": api_workout_volume,
     "/api/lift-progression": api_lift_progression,
     "/api/workout-sets": api_workout_sets,
+    "/api/zone-minutes": api_zone_minutes,
     "/api/hr-recovery": api_hr_recovery,
     "/api/version": api_version,
 }

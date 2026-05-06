@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js?v=20260506';
+import { loadAllData } from './data.js?v=20260506b';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -387,6 +387,23 @@ async function init() {
     { label: 'VO2 Max', data: vo2Points, ...lineDefaults(COLORS.green) },
     { ...trendline('vo2', vo2Points, COLORS.yellow), label: 'Trend' },
   ], baseOptions({ showLegend: true })));
+
+  // 10c. Weekly HR Zone Minutes (stacked bar — Z1 at bottom → Z5 on top)
+  const ZONE_COLORS = ['#74c0fc', '#51cf66', '#ffd43b', '#ff922b', '#ff6b6b'];
+  const zoneDatasets = ['z1', 'z2', 'z3', 'z4', 'z5'].map((k, i) => ({
+    label: `Z${i + 1}`,
+    data: data.zoneMinutes.map(d => ({ x: d.week, y: d[k] })),
+    backgroundColor: ZONE_COLORS[i],
+    borderColor: ZONE_COLORS[i],
+    borderWidth: 0,
+    stack: 'zones',
+  }));
+  pending.push(createChart('zoneMinutesChart', 'bar', zoneDatasets, (() => {
+    const opts = baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'minutes' });
+    opts.scales.x.stacked = true;
+    opts.scales.y.stacked = true;
+    return opts;
+  })()));
 
   // 10b. HR Recovery (60s drop after hard intervals — higher = better fitness)
   const hrRecoveryPoints = data.hrRecovery.map(d => ({ x: d.date, y: d.recovery }));

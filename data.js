@@ -5,7 +5,7 @@ async function fetchJSON(path) {
 }
 
 export async function loadAllData() {
-  const [weight, bodyfat, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery] = await Promise.all([
+  const [weight, bodyfat, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes] = await Promise.all([
     fetchJSON('/api/weight'),
     fetchJSON('/api/bodyfat'),
     fetchJSON('/api/measurements'),
@@ -17,6 +17,7 @@ export async function loadAllData() {
     fetchJSON('/api/lift-progression'),
     fetchJSON('/api/workout-sets'),
     fetchJSON('/api/hr-recovery'),
+    fetchJSON('/api/zone-minutes'),
   ]);
 
   return {
@@ -31,6 +32,7 @@ export async function loadAllData() {
     liftProgression: processLiftProgression(liftProgression),
     workoutSets: processWorkoutSets(workoutSets),
     hrRecovery,
+    zoneMinutes,
   };
 }
 
