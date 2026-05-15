@@ -935,33 +935,21 @@ async function rebuildCharts(initial = false) {
     trendline('shrug', shrugData, FADED.blue),
   ], liftOpts('lbs', upperDBAnno)));
 
-  // 14. Lower Body Machines (Leg Press, Leg Curl, Leg Extension, Abductors, Adductors, Side Bend, Ab Machine, Calf Raise)
+  // 14a. Lower Body — Legs (Leg Press, Leg Curl, Leg Extension, Calf Raise)
   const legData = liftData('leg press', GYM_START);
   const legCurlData = liftData('leg curl', GYM_START);
   const legExtData = liftData('leg extension', GYM_START);
-  const abdData = liftData('abductors', GYM_START);
-  const addData = liftData('adductors', GYM_START);
-  const sideData = liftData('side bend');
-  const abMachineData = liftData('ab machine');
   const calfData = liftData('calf raise seated');
-  const lowerMachineAnno = compactAnnotations({
+  const lowerLegsAnno = compactAnnotations({
     legPR: prAnnotation(legData, 'Leg Press'),
     legCurlPR: prAnnotation(legCurlData, 'Leg Curl'),
     legExtPR: prAnnotation(legExtData, 'Leg Ext'),
-    abdPR: prAnnotation(abdData, 'Abd'),
-    addPR: prAnnotation(addData, 'Add'),
-    sidePR: prAnnotation(sideData, 'Side'),
-    abMachinePR: prAnnotation(abMachineData, 'Ab Mach'),
     calfPR: prAnnotation(calfData, 'Calf'),
   });
-  pending.push(createChart('lowerMachineChart', 'line', [
+  pending.push(createChart('lowerLegsChart', 'line', [
     setsScatter('leg press', FADED.purple, GYM_START),
     setsScatter('leg curl', FADED.blue, GYM_START),
     setsScatter('leg extension', FADED.pink, GYM_START),
-    setsScatter('abductors', FADED.orange, GYM_START),
-    setsScatter('adductors', FADED.red, GYM_START),
-    setsScatter('side bend', FADED.green),
-    setsScatter('ab machine', FADED.cyan),
     setsScatter('calf raise seated', FADED.yellow),
     { label: 'Leg Press', data: legData, ...liftDefaults(COLORS.purple) },
     trendline('leg', legData, FADED.purple),
@@ -969,6 +957,26 @@ async function rebuildCharts(initial = false) {
     trendline('legCurl', legCurlData, FADED.blue),
     { label: 'Leg Extension', data: legExtData, ...liftDefaults(COLORS.pink) },
     trendline('legExt', legExtData, FADED.pink),
+    { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
+    trendline('calf', calfData, FADED.yellow),
+  ], liftOpts('lbs', lowerLegsAnno)));
+
+  // 14b. Lower Body — Hip / Core (Abductors, Adductors, Side Bend, Ab Machine)
+  const abdData = liftData('abductors', GYM_START);
+  const addData = liftData('adductors', GYM_START);
+  const sideData = liftData('side bend');
+  const abMachineData = liftData('ab machine');
+  const lowerHipCoreAnno = compactAnnotations({
+    abdPR: prAnnotation(abdData, 'Abd'),
+    addPR: prAnnotation(addData, 'Add'),
+    sidePR: prAnnotation(sideData, 'Side'),
+    abMachinePR: prAnnotation(abMachineData, 'Ab Mach'),
+  });
+  pending.push(createChart('lowerHipCoreChart', 'line', [
+    setsScatter('abductors', FADED.orange, GYM_START),
+    setsScatter('adductors', FADED.red, GYM_START),
+    setsScatter('side bend', FADED.green),
+    setsScatter('ab machine', FADED.cyan),
     { label: 'Abductors', data: abdData, ...liftDefaults(COLORS.orange) },
     trendline('abd', abdData, FADED.orange),
     { label: 'Adductors', data: addData, ...liftDefaults(COLORS.red) },
@@ -977,9 +985,7 @@ async function rebuildCharts(initial = false) {
     trendline('side', sideData, FADED.green),
     { label: 'Ab Machine', data: abMachineData, ...liftDefaults(COLORS.cyan) },
     trendline('abMachine', abMachineData, FADED.cyan),
-    { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
-    trendline('calf', calfData, FADED.yellow),
-  ], liftOpts('lbs', lowerMachineAnno)));
+  ], liftOpts('lbs', lowerHipCoreAnno)));
 
   // 15. Lower Body BB/DB (RDL Barbell + RDL Dumbbell)
   const rdlBBData = liftData('rdl barbell');
