@@ -1,0 +1,4 @@
+logs/
+.playwright-mcp/
+*.pyc
+__pycache__/

@@ -10,12 +10,13 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0/dist/chartjs-plugin-zoom.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1/dist/chartjs-plugin-annotation.min.js"></script>
 
 </head>
 <body>
   <header>
     <h1>Health Dashboard</h1>
-    <p class="subtitle">Ian's metrics <span class="version" id="version"></span></p>
+    <p class="subtitle">Ian's metrics <span class="version" id="version"></span> <a class="repo-link" href="/architecture.html" aria-label="Architecture diagram" title="Architecture diagram">architecture</a> <a class="repo-link" href="https://github.com/Kieldro/health-dashboard" target="_blank" rel="noopener" aria-label="View source on GitHub" title="View source on GitHub"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg></a></p>
     <nav class="page-nav" id="pageNav" aria-label="Pages">
       <a href="#body">Body</a>
       <a href="#running">Running</a>
@@ -29,6 +30,7 @@
       <button type="button" data-range="1Y">1Y</button>
       <button type="button" data-range="All">All</button>
     </div>
+    <p class="range-caption" id="rangeCaption"></p>
   </header>
   <main>
     <section id="page-body" class="chart-grid page active">
@@ -119,15 +121,5 @@
     </section>
   </main>
   <script>document.write('<script type="module" src="app.js?v=' + Date.now() + '"><\/script>');</script>
-  <script>
-    // Auto-refresh: reload when tab is revisited after 1hr, or every 6hrs if left open
-    (function() {
-      var loaded = Date.now();
-      document.addEventListener('visibilitychange', function() {
-        if (!document.hidden && Date.now() - loaded > 3600000) location.reload();
-      });
-      setInterval(function() { location.reload(); }, 21600000);
-    })();
-  </script>
 </body>
 </html>

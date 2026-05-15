@@ -1,4 +1,4 @@
-import { loadAllData } from './data.js?v=20260506b';
+import { loadAllData } from './data.js';
 
 const COLORS = {
   blue: '#4a9eff',
@@ -8,14 +8,53 @@ const COLORS = {
   purple: '#cc5de8',
   orange: '#ff922b',
   cyan: '#22d3ee',
+  pink: '#ff6bcb',
   blueFaded: 'rgba(74,158,255,0.3)',
   blueBar: 'rgba(74,158,255,0.7)',
 };
+
+// Personal goals from /home/keo/Documents/notes/goals.md.
+// Near-term targets (Summer 2026); a few longer-term values noted in comments.
+const GOALS = {
+  weightLbs: 207,        // Jun 1 2026 (long-term: 200 by Feb 2027)
+  bodyFatPct: 15,        // Jun 2026
+  rhrBpm: 55,            // Jan 2027 (currently ~62)
+  hrvMs: 44,             // late 2027 (currently ~25)
+  vo2max: 50,            // Jan 2027 (currently ~40)
+  hrRecovery60Bpm: 50,   // Jan 2027 (currently ~34)
+};
+
+// User-maintained event log — annotations get drawn on charts in matching scope.
+// Edit this array to add race days, diet changes, injuries, etc.
+const EVENTS = [
+  // Example (commented out — uncomment after confirming with Ian):
+  // { date: '2026-04-19', label: 'Spring 5K', scope: 'running' },
+];
 
 const GRID_COLOR = 'rgba(255,255,255,0.06)';
 const TICK_COLOR = '#8b8fa3';
 
 const ANIMATION = { duration: 1000, easing: 'easeOutQuart' };
+
+function goalLineAnnotation(value, label, color = COLORS.yellow) {
+  return {
+    type: 'line',
+    yMin: value,
+    yMax: value,
+    borderColor: color,
+    borderWidth: 1.5,
+    borderDash: [6, 4],
+    label: {
+      display: true,
+      content: label,
+      position: 'end',
+      backgroundColor: 'transparent',
+      color: color,
+      font: { size: 10 },
+      yAdjust: -8,
+    },
+  };
+}
 
 function isoDaysAgo(days) {
   const d = new Date();
@@ -36,8 +75,100 @@ function rangeMin(preset) {
   }
 }
 
-let currentMin = rangeMin('YTD');
+/**
+ * Build a name→annotation map for an array of `{date, label}` events.
+ * Renders each as a dashed vertical line at the date with a small label at the top.
+ */
+function eventAnnotations(events, color = 'rgba(139,143,163,0.5)') {
+  const ann = {};
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    ann[`event_${i}`] = {
+      type: 'line',
+      xMin: e.date,
+      xMax: e.date,
+      borderColor: color,
+      borderWidth: 1,
+      borderDash: [4, 4],
+      label: {
+        display: true,
+        content: e.label,
+        position: 'start',
+        backgroundColor: 'transparent',
+        color: color,
+        font: { size: 9 },
+        yAdjust: 8,
+      },
+    };
+  }
+  return ann;
+}
+
+/** Build the event list for a given chart scope ('body'|'running'|'lifts').
+ *  DEXA scan dates are NOT auto-included as event lines — they already appear
+ *  as green diamonds on the Body Fat chart, so labeling them on every chart
+ *  was noise. Only user-defined events in EVENTS render as vertical lines. */
+function eventsForScope(scope) {
+  return EVENTS.filter(e => e.scope === scope || e.scope === 'all');
+}
+
+/** Merge an annotations map into opts.plugins.annotation, preserving any existing entries (goal lines, PR markers). */
+function mergeAnnotations(opts, annotations) {
+  if (!annotations || Object.keys(annotations).length === 0) return;
+  opts.plugins.annotation = opts.plugins.annotation || { annotations: {} };
+  opts.plugins.annotation.annotations = opts.plugins.annotation.annotations || {};
+  Object.assign(opts.plugins.annotation.annotations, annotations);
+}
+
+const SAVED_RANGE = (typeof localStorage !== 'undefined' && localStorage.getItem('range')) || 'YTD';
+let currentRange = ['1M','3M','6M','YTD','1Y','All'].includes(SAVED_RANGE) ? SAVED_RANGE : 'YTD';
+let currentMin = rangeMin(currentRange);
 const allCharts = [];
+
+function relativeAgo(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days < 0) return '';
+  if (days === 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 7) return `${days}d ago`;
+  if (days < 30) return `${Math.floor(days/7)}w ago`;
+  return `${Math.floor(days/30)}mo ago`;
+}
+
+function setChartMeta(canvasId, latest, lastDate) {
+  const canvas = document.getElementById(canvasId);
+  const card = canvas?.closest('.chart-card');
+  if (!card) return;
+  let meta = card.querySelector('.chart-meta');
+  if (!meta) {
+    meta = document.createElement('div');
+    meta.className = 'chart-meta';
+    card.querySelector('h2')?.after(meta);
+  }
+  const ago = relativeAgo(lastDate);
+  meta.innerHTML =
+    (latest ? `<span class="chart-latest">${latest}</span>` : '') +
+    (ago ? `<span class="chart-updated">${ago}</span>` : '');
+}
+
+function updateRangeCaption() {
+  const el = document.getElementById('rangeCaption');
+  if (!el) return;
+  const today = new Date().toISOString().split('T')[0];
+  el.textContent = currentMin
+    ? `Showing ${currentMin} → ${today} (${currentRange})`
+    : `Showing all data (${currentRange})`;
+}
+
+function fmtPace(minPerMi) {
+  if (minPerMi == null) return '';
+  let m = Math.floor(minPerMi);
+  let s = Math.round((minPerMi - m) * 60);
+  if (s === 60) { m += 1; s = 0; }
+  return `${m}:${String(s).padStart(2, '0')}/mi`;
+}
 
 /** Shared x-scale so every chart reads `currentMin` from one place. */
 function xScale(timeUnit = 'month') {
@@ -183,60 +314,115 @@ async function init() {
     })
     .catch(() => {});
 
+  await rebuildCharts(/*initial=*/true);
+  wireRangePresets();
+  setupAutoRefresh();
+}
+
+let _lastRefresh = Date.now();
+
+async function rebuildCharts(initial = false) {
+  // Tear down existing charts so we can rebuild against fresh data.
+  // This preserves DOM state (scroll position, active page tab, range button,
+  // version chip) that a full `location.reload()` would discard.
+  // Tradeoff: per-chart zoom/pan state is reset — fixing that would require
+  // an in-place dataset update that the current inline mappers can't support.
+  for (const c of allCharts) c.destroy();
+  allCharts.length = 0;
+
   let data;
   try {
     data = await loadAllData();
   } catch (e) {
     console.error('Failed to load data:', e);
-    document.querySelectorAll('.chart-card.loading').forEach(card => {
-      card.classList.remove('loading');
-      card.querySelector('canvas').style.display = 'none';
-      card.insertAdjacentHTML('beforeend', '<p style="color:#ff6b6b;text-align:center;margin-top:2rem">Failed to load data</p>');
-    });
+    if (initial) {
+      document.querySelectorAll('.chart-card.loading').forEach(card => {
+        card.classList.remove('loading');
+        card.querySelector('canvas').style.display = 'none';
+        card.insertAdjacentHTML('beforeend', '<p style="color:#ff6b6b;text-align:center;margin-top:2rem">Failed to load data</p>');
+      });
+    }
     return;
   }
+  _lastRefresh = Date.now();
   const pending = [];
 
+  // Event annotations: DEXA scan dates auto-seed body charts; EVENTS array adds user events per scope.
+  const bodyEvents = eventsForScope('body');
+  const runningEvents = eventsForScope('running');
+  const liftsEvents = eventsForScope('lifts');
+  const bodyEventAnno = eventAnnotations(bodyEvents);
+  const runningEventAnno = eventAnnotations(runningEvents);
+  const liftsEventAnno = eventAnnotations(liftsEvents);
+
   // 1. Weight
-  pending.push(createChart('weightChart', 'line', [
-    {
-      label: 'Daily Weight',
-      data: data.weight.map(d => ({ x: d.date, y: d.weight })),
-      ...lineDefaults(COLORS.blueFaded),
-      borderWidth: 1,
-    },
-    {
-      label: '7-day MA',
-      data: data.weight.map(d => ({ x: d.date, y: d.ma7 })),
-      ...lineDefaults(COLORS.blue),
-      pointRadius: 0,
-    },
-    {
-      label: '30-day MA',
-      data: data.weight.map(d => ({ x: d.date, y: d.ma30 })),
-      ...lineDefaults(COLORS.yellow),
-      pointRadius: 0,
-    },
-  ], baseOptions({ showLegend: true, yLabel: 'lbs' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: 'lbs' });
+    opts.plugins.annotation = {
+      annotations: GOALS.weightLbs != null
+        ? { goal: goalLineAnnotation(GOALS.weightLbs, `goal ${GOALS.weightLbs}`, COLORS.yellow) }
+        : {},
+    };
+    mergeAnnotations(opts, bodyEventAnno);
+    pending.push(createChart('weightChart', 'line', [
+      {
+        label: 'Daily Weight',
+        data: data.weight.map(d => ({ x: d.date, y: d.weight })),
+        ...lineDefaults(COLORS.blueFaded),
+        borderWidth: 1,
+      },
+      {
+        label: '7-day MA',
+        data: data.weight.map(d => ({ x: d.date, y: d.ma7 })),
+        ...lineDefaults(COLORS.blue),
+        pointRadius: 0,
+      },
+      {
+        label: '30-day MA',
+        data: data.weight.map(d => ({ x: d.date, y: d.ma30 })),
+        ...lineDefaults(COLORS.yellow),
+        pointRadius: 0,
+      },
+    ], opts));
+  })();
 
   // 2. Body Fat
-  pending.push(createChart('bodyFatChart', 'line', [
-    {
-      label: 'Renpho BF%',
-      data: data.bodyFat.renpho.map(d => ({ x: d.date, y: d.renpho })),
-      ...lineDefaults(COLORS.blue),
-    },
-    {
-      label: 'Navy BF%',
-      data: data.bodyFat.navy.map(d => ({ x: d.date, y: d.navy })),
-      ...lineDefaults(COLORS.red),
-    },
-  ], baseOptions({ showLegend: true, yLabel: '%' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: '%' });
+    opts.plugins.annotation = {
+      annotations: GOALS.bodyFatPct != null
+        ? { target: goalLineAnnotation(GOALS.bodyFatPct, `target ${GOALS.bodyFatPct}%`, COLORS.yellow) }
+        : {},
+    };
+    mergeAnnotations(opts, bodyEventAnno);
+    pending.push(createChart('bodyFatChart', 'line', [
+      {
+        label: 'Renpho BF%',
+        data: data.bodyFat.renpho.map(d => ({ x: d.date, y: d.renpho })),
+        ...lineDefaults(COLORS.blue),
+      },
+      {
+        label: 'Navy BF%',
+        data: data.bodyFat.navy.map(d => ({ x: d.date, y: d.navy })),
+        ...lineDefaults(COLORS.red),
+      },
+      {
+        label: 'DEXA BF%',
+        data: data.bodyFat.dexa.map(d => ({ x: d.date, y: d.dexa })),
+        ...lineDefaults(COLORS.green),
+        showLine: false,
+        pointRadius: 6,
+        pointHoverRadius: 9,
+        pointStyle: 'rectRot',
+      },
+    ], opts));
+  })();
 
   // 3. Measurements (stomach, waist & neck)
   (() => {
     const opts = baseOptions({ showLegend: true, yLabel: 'inches' });
     opts.interaction = { mode: 'nearest', intersect: false };
+    mergeAnnotations(opts, bodyEventAnno);
     pending.push(createChart('measurementsChart', 'line', [
       {
         label: 'Stomach',
@@ -260,6 +446,7 @@ async function init() {
   (() => {
     const opts = baseOptions({ showLegend: true, yLabel: 'inches' });
     opts.interaction = { mode: 'nearest', intersect: false };
+    mergeAnnotations(opts, bodyEventAnno);
     pending.push(createChart('limbChart', 'line', [
       {
         label: 'Bicep',
@@ -285,108 +472,161 @@ async function init() {
   })();
 
   // 4. Resting Heart Rate
-  pending.push(createChart('rhrChart', 'line', [
-    {
-      label: 'RHR',
-      data: data.rhr.map(d => ({ x: d.date, y: d.rhr })),
-      ...lineDefaults(COLORS.red),
-    },
-    {
-      label: '30-day MA',
-      data: computeMA(data.rhr, 'rhr', 30),
-      ...lineDefaults(COLORS.yellow),
-      pointRadius: 0,
-      borderWidth: 2,
-      tension: 0.3,
-    },
-  ], baseOptions({ showLegend: true, yLabel: 'bpm' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: 'bpm' });
+    if (GOALS.rhrBpm != null) {
+      opts.plugins.annotation = {
+        annotations: { goal: goalLineAnnotation(GOALS.rhrBpm, `goal ${GOALS.rhrBpm}`, COLORS.yellow) },
+      };
+    }
+    mergeAnnotations(opts, bodyEventAnno);
+    pending.push(createChart('rhrChart', 'line', [
+      {
+        label: 'RHR',
+        data: data.rhr.map(d => ({ x: d.date, y: d.rhr })),
+        ...lineDefaults(COLORS.red),
+      },
+      {
+        label: '30-day MA',
+        data: computeMA(data.rhr, 'rhr', 30),
+        ...lineDefaults(COLORS.yellow),
+        pointRadius: 0,
+        borderWidth: 2,
+        tension: 0.3,
+      },
+    ], opts));
+  })();
 
   // 5. HRV
-  pending.push(createChart('hrvChart', 'line', [
-    {
-      label: 'HRV',
-      data: data.hrv.map(d => ({ x: d.date, y: d.hrv })),
-      ...lineDefaults(COLORS.green),
-    },
-    {
-      label: '30-day MA',
-      data: computeMA(data.hrv, 'hrv', 30),
-      ...lineDefaults(COLORS.yellow),
-      pointRadius: 0,
-      borderWidth: 2,
-      tension: 0.3,
-    },
-  ], baseOptions({ showLegend: true, yLabel: 'ms' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: 'ms' });
+    const recentHRV = (data.hrv || []).slice(-90).map(d => d.hrv).filter(v => v != null);
+    const hrvBaseline = recentHRV.length
+      ? Math.round(recentHRV.reduce((a, b) => a + b, 0) / recentHRV.length)
+      : null;
+    opts.plugins.annotation = opts.plugins.annotation || { annotations: {} };
+    if (hrvBaseline != null) {
+      opts.plugins.annotation.annotations.baseline =
+        goalLineAnnotation(hrvBaseline, `90d avg ${hrvBaseline}`, COLORS.cyan);
+    }
+    if (GOALS.hrvMs != null) {
+      opts.plugins.annotation.annotations.goal =
+        goalLineAnnotation(GOALS.hrvMs, `goal ${GOALS.hrvMs}`, COLORS.yellow);
+    }
+    mergeAnnotations(opts, bodyEventAnno);
+    pending.push(createChart('hrvChart', 'line', [
+      {
+        label: 'HRV',
+        data: data.hrv.map(d => ({ x: d.date, y: d.hrv })),
+        ...lineDefaults(COLORS.green),
+      },
+      {
+        label: '30-day MA',
+        data: computeMA(data.hrv, 'hrv', 30),
+        ...lineDefaults(COLORS.yellow),
+        pointRadius: 0,
+        borderWidth: 2,
+        tension: 0.3,
+      },
+    ], opts));
+  })();
 
   // 6. Efficiency Factor + trendline
   const efPoints = data.runs.all.map(d => ({ x: d.date, y: d.ef }));
-  pending.push(createChart('efChart', 'line', [
-    { label: 'EF', data: efPoints, ...lineDefaults(COLORS.blue) },
-    { ...trendline('ef', efPoints, COLORS.yellow), label: 'Trend' },
-  ], baseOptions({ showLegend: true })));
+  (() => {
+    const opts = baseOptions({ showLegend: true });
+    mergeAnnotations(opts, runningEventAnno);
+    pending.push(createChart('efChart', 'line', [
+      { label: 'EF', data: efPoints, ...lineDefaults(COLORS.blue) },
+      { ...trendline('ef', efPoints, COLORS.yellow), label: 'Trend' },
+    ], opts));
+  })();
 
-  // 7. 5K Heart Rate (primary y) + Pace (secondary y)
-  pending.push(createChart('fiveKChart', 'line', [
-    {
-      label: 'Avg HR',
-      data: data.runs.fiveK.map(d => ({ x: d.date, y: d.avgHR })),
-      ...lineDefaults(COLORS.red),
-      yAxisID: 'y',
-    },
-    {
-      label: 'Pace (min/mi)',
-      data: data.runs.fiveK.map(d => ({ x: d.date, y: d.paceMinMi })),
-      ...lineDefaults(COLORS.green),
-      yAxisID: 'y1',
-    },
-  ], {
-    ...baseOptions({ showLegend: true }),
-    scales: {
+  // 7. 5K Heart Rate (primary y, red) + Pace (secondary y, green) — color-coded axes
+  (() => {
+    const opts = baseOptions({ showLegend: true });
+    opts.scales = {
       x: xScale('month'),
       y: {
         position: 'left',
         grid: { color: GRID_COLOR },
-        ticks: { color: TICK_COLOR },
-        title: { display: true, text: 'bpm', color: TICK_COLOR },
+        ticks: { color: COLORS.red },
+        title: { display: true, text: 'bpm', color: COLORS.red },
       },
       y1: {
         position: 'right',
         grid: { drawOnChartArea: false },
-        ticks: { color: TICK_COLOR },
-        title: { display: true, text: 'min/mi', color: TICK_COLOR },
+        ticks: { color: COLORS.green },
+        title: { display: true, text: 'min/mi', color: COLORS.green },
       },
-    },
-  }));
+    };
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx) => ctx.dataset.label === 'Pace (min/mi)'
+        ? `Pace: ${fmtPace(ctx.parsed.y)}`
+        : `${ctx.dataset.label}: ${ctx.parsed.y}`,
+    };
+    mergeAnnotations(opts, runningEventAnno);
+    pending.push(createChart('fiveKChart', 'line', [
+      {
+        label: 'Avg HR',
+        data: data.runs.fiveK.map(d => ({ x: d.date, y: d.avgHR })),
+        ...lineDefaults(COLORS.red),
+        yAxisID: 'y',
+      },
+      {
+        label: 'Pace (min/mi)',
+        data: data.runs.fiveK.map(d => ({ x: d.date, y: d.paceMinMi })),
+        ...lineDefaults(COLORS.green),
+        yAxisID: 'y1',
+      },
+    ], opts));
+  })();
 
   // 8. Long Run Distance
-  pending.push(createChart('longRunChart', 'line', [
-    {
-      label: 'Distance',
-      data: data.runs.longRuns.map(d => ({ x: d.date, y: d.distMi })),
-      ...lineDefaults(COLORS.purple),
-    },
-  ], baseOptions({ yLabel: 'miles' })));
+  (() => {
+    const opts = baseOptions({ yLabel: 'miles' });
+    mergeAnnotations(opts, runningEventAnno);
+    pending.push(createChart('longRunChart', 'line', [
+      {
+        label: 'Distance',
+        data: data.runs.longRuns.map(d => ({ x: d.date, y: d.distMi })),
+        ...lineDefaults(COLORS.purple),
+      },
+    ], opts));
+  })();
 
   // 9. Weekly Mileage (bar + trendline)
   const mileagePoints = data.runs.weeklyMileage.map(d => ({ x: d.week, y: d.miles }));
-  pending.push(createChart('weeklyMileageChart', 'bar', [
-    {
-      label: 'Miles',
-      data: mileagePoints,
-      backgroundColor: COLORS.blueBar,
-      borderColor: COLORS.blue,
-      borderWidth: 1,
-      borderRadius: 3,
-    },
-    { ...trendline('mileage', mileagePoints, COLORS.green), label: 'Trend', type: 'line' },
-  ], baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' });
+    mergeAnnotations(opts, runningEventAnno);
+    pending.push(createChart('weeklyMileageChart', 'bar', [
+      {
+        label: 'Miles',
+        data: mileagePoints,
+        backgroundColor: COLORS.blueBar,
+        borderColor: COLORS.blue,
+        borderWidth: 1,
+        borderRadius: 3,
+      },
+      { ...trendline('mileage', mileagePoints, COLORS.green), label: 'Trend', type: 'line' },
+    ], opts));
+  })();
 
   // 10. VO2 Max
   const vo2Points = data.vo2max.map(d => ({ x: d.date, y: d.vo2max }));
-  pending.push(createChart('vo2maxChart', 'line', [
-    { label: 'VO2 Max', data: vo2Points, ...lineDefaults(COLORS.green) },
-    { ...trendline('vo2', vo2Points, COLORS.yellow), label: 'Trend' },
-  ], baseOptions({ showLegend: true })));
+  (() => {
+    const opts = baseOptions({ showLegend: true });
+    if (GOALS.vo2max != null) {
+      opts.plugins.annotation = {
+        annotations: { goal: goalLineAnnotation(GOALS.vo2max, `goal ${GOALS.vo2max}`, COLORS.yellow) },
+      };
+    }
+    pending.push(createChart('vo2maxChart', 'line', [
+      { label: 'VO2 Max', data: vo2Points, ...lineDefaults(COLORS.green) },
+      { ...trendline('vo2', vo2Points, COLORS.yellow), label: 'Trend' },
+    ], opts));
+  })();
 
   // 10c. Weekly HR Zone Minutes (stacked bar — Z1 at bottom → Z5 on top)
   const ZONE_COLORS = ['#74c0fc', '#51cf66', '#ffd43b', '#ff922b', '#ff6b6b'];
@@ -407,22 +647,34 @@ async function init() {
 
   // 10b. HR Recovery (60s drop after hard intervals — higher = better fitness)
   const hrRecoveryPoints = data.hrRecovery.map(d => ({ x: d.date, y: d.recovery }));
-  pending.push(createChart('hrRecoveryChart', 'line', [
-    { label: '60s drop', data: hrRecoveryPoints, ...lineDefaults(COLORS.red) },
-    { ...trendline('hrRecovery', hrRecoveryPoints, COLORS.yellow), label: 'Trend' },
-  ], baseOptions({ showLegend: true, yLabel: 'bpm' })));
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: 'bpm' });
+    if (GOALS.hrRecovery60Bpm != null) {
+      opts.plugins.annotation = {
+        annotations: { goal: goalLineAnnotation(GOALS.hrRecovery60Bpm, `goal ${GOALS.hrRecovery60Bpm}`, COLORS.yellow) },
+      };
+    }
+    pending.push(createChart('hrRecoveryChart', 'line', [
+      { label: '60s drop', data: hrRecoveryPoints, ...lineDefaults(COLORS.red) },
+      { ...trendline('hrRecovery', hrRecoveryPoints, COLORS.yellow), label: 'Trend' },
+    ], opts));
+  })();
 
   // 11. Weekly Training Volume
-  pending.push(createChart('volumeChart', 'bar', [
-    {
-      label: 'Sets',
-      data: data.workoutVolume.map(d => ({ x: d.week, y: d.total_sets })),
-      backgroundColor: COLORS.blueBar,
-      borderColor: COLORS.blue,
-      borderWidth: 1,
-      borderRadius: 3,
-    },
-  ], baseOptions({ timeUnit: 'week', yLabel: 'sets' })));
+  (() => {
+    const opts = baseOptions({ timeUnit: 'week', yLabel: 'sets' });
+    mergeAnnotations(opts, liftsEventAnno);
+    pending.push(createChart('volumeChart', 'bar', [
+      {
+        label: 'Sets',
+        data: data.workoutVolume.map(d => ({ x: d.week, y: d.total_sets })),
+        backgroundColor: COLORS.blueBar,
+        borderColor: COLORS.blue,
+        borderWidth: 1,
+        borderRadius: 3,
+      },
+    ], opts));
+  })();
 
   // 12-14. Combined exercise progression charts
   // Machine exercises: filter to 2026+ (new gym)
@@ -437,15 +689,45 @@ async function init() {
     const points = data.liftProgression[exercise] || [];
     return points
       .filter(p => !filterDate || p.date >= filterDate)
-      .map(p => ({ x: p.date, y: exerciseY(exercise, p), reps: p.reps }))
+      .map(p => ({ x: p.date, y: exerciseY(exercise, p), reps: p.reps, weight: p.weight }))
       .filter(p => p.y != null && p.y > 0);
+  }
+  /**
+   * Build a Chart.js annotation marker at the heaviest-weight point in a lift series.
+   * `rankBy` picks which field decides "best": 'weight' (default) or 'y' (for rep-based lifts).
+   * Returns null when there's nothing to mark.
+   */
+  function prAnnotation(dataPoints, key = 'PR', rankBy = 'weight') {
+    const arr = (dataPoints || []).filter(p => p && p[rankBy] != null && p.y != null);
+    if (arr.length === 0) return null;
+    const top = arr.reduce((m, p) => p[rankBy] > m[rankBy] ? p : m);
+    return {
+      type: 'point',
+      xValue: top.x,
+      yValue: top.y,
+      radius: 6,
+      backgroundColor: COLORS.yellow,
+      borderColor: COLORS.yellow,
+      borderWidth: 0,
+      pointStyle: 'star',
+      label: { display: true, content: key, font: { size: 9 }, color: COLORS.yellow, position: 'top', yAdjust: -8 },
+    };
+  }
+  /** Drop null entries from a name→annotation map. Returns undefined if empty. */
+  function compactAnnotations(map) {
+    const out = {};
+    let any = false;
+    for (const [k, v] of Object.entries(map)) {
+      if (v) { out[k] = v; any = true; }
+    }
+    return any ? out : undefined;
   }
   /** Scatter of every individual set, overlaid at the chart's same y mapping. */
   function setsScatter(exercise, color, filterDate) {
     const sets = data.workoutSets[exercise] || [];
     const points = sets
       .filter(s => !filterDate || s.week >= filterDate)
-      .map(s => ({ x: s.week, y: exerciseY(exercise, { weight: s.weight, reps: s.reps, maxReps: s.reps }), reps: s.reps }))
+      .map(s => ({ x: s.week, y: exerciseY(exercise, { weight: s.weight, reps: s.reps, maxReps: s.reps }), reps: s.reps, weight: s.weight }))
       .filter(p => p.y != null && p.y > 0);
     return {
       label: `_${exercise}Sets`,
@@ -466,6 +748,20 @@ async function init() {
     if (!reps || typeof reps !== 'number') return 2;
     return Math.max(2, Math.min(8, reps / 3));
   }
+  /**
+   * Build a point-radius callback scaled by `weight` within [minW, maxW].
+   * Returns a closure: ctx -> px. Lightest weight -> 2px, heaviest -> 12px.
+   * `boost` is added on top (e.g. +3 for hover state).
+   */
+  function weightPointRadius(minW, maxW, boost = 0) {
+    const span = Math.max(1, maxW - minW);
+    return (ctx) => {
+      const w = ctx.raw && ctx.raw.weight;
+      if (typeof w !== 'number') return 2 + boost;
+      const r = 2 + ((w - minW) / span) * 10;
+      return Math.max(2, Math.min(12, r)) + boost;
+    };
+  }
   function liftDefaults(color) {
     return {
       ...lineDefaults(color),
@@ -473,7 +769,7 @@ async function init() {
       pointHoverRadius: 8,
     };
   }
-  function liftOpts(yLabel) {
+  function liftOpts(yLabel, annotations) {
     const opts = baseOptions({ showLegend: true, timeUnit: 'month', yLabel });
     opts.interaction = { mode: 'nearest', intersect: false };
     opts.plugins.legend.labels.filter = legendFilterTrend;
@@ -484,6 +780,8 @@ async function init() {
         return reps ? `Reps: ${reps}` : '';
       },
     };
+    if (annotations) opts.plugins.annotation = { annotations };
+    mergeAnnotations(opts, liftsEventAnno);
     return opts;
   }
 
@@ -495,6 +793,7 @@ async function init() {
     purple: 'rgba(204,93,232,0.3)',
     orange: 'rgba(255,146,43,0.3)',
     cyan: 'rgba(34,211,238,0.3)',
+    pink: 'rgba(255,107,203,0.3)',
   };
 
   // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine + Cable Row)
@@ -502,6 +801,12 @@ async function init() {
   const inclineData = liftData('incline press', GYM_START);
   const rowData = liftData('row machine', GYM_START);
   const cableRowData = liftData('cable row', GYM_START);
+  const upperMachineAnno = compactAnnotations({
+    chestPR: prAnnotation(chestData),
+    inclinePR: prAnnotation(inclineData),
+    rowPR: prAnnotation(rowData),
+    cableRowPR: prAnnotation(cableRowData),
+  });
   pending.push(createChart('upperMachineChart', 'line', [
     setsScatter('chest press', FADED.red, GYM_START),
     setsScatter('incline press', FADED.green, GYM_START),
@@ -515,12 +820,17 @@ async function init() {
     trendline('row', rowData, FADED.blue),
     { label: 'Cable Row', data: cableRowData, ...liftDefaults(COLORS.yellow) },
     trendline('cableRow', cableRowData, FADED.yellow),
-  ], liftOpts('lbs')));
+  ], liftOpts('lbs', upperMachineAnno)));
 
   // 13. Upper Body DB (Lat Raise, Hammer Curls, Kelso Shrugs)
   const latData = liftData('lateral raise');
   const curlData = liftData('hammer curl');
   const shrugData = liftData('kelso shrugs');
+  const upperDBAnno = compactAnnotations({
+    latPR: prAnnotation(latData),
+    curlPR: prAnnotation(curlData),
+    shrugPR: prAnnotation(shrugData),
+  });
   pending.push(createChart('upperDBChart', 'line', [
     setsScatter('lateral raise', FADED.green),
     setsScatter('hammer curl', FADED.yellow),
@@ -531,19 +841,31 @@ async function init() {
     trendline('curl', curlData, FADED.yellow),
     { label: 'Kelso Shrugs', data: shrugData, ...liftDefaults(COLORS.blue) },
     trendline('shrug', shrugData, FADED.blue),
-  ], liftOpts('lbs')));
+  ], liftOpts('lbs', upperDBAnno)));
 
-  // 14. Lower Body Machines (Leg Press, Leg Curl, Abductors, Adductors, Side Bend, Ab Machine, Calf Raise)
+  // 14. Lower Body Machines (Leg Press, Leg Curl, Leg Extension, Abductors, Adductors, Side Bend, Ab Machine, Calf Raise)
   const legData = liftData('leg press', GYM_START);
   const legCurlData = liftData('leg curl', GYM_START);
+  const legExtData = liftData('leg extension', GYM_START);
   const abdData = liftData('abductors', GYM_START);
   const addData = liftData('adductors', GYM_START);
   const sideData = liftData('side bend');
   const abMachineData = liftData('ab machine');
   const calfData = liftData('calf raise seated');
+  const lowerMachineAnno = compactAnnotations({
+    legPR: prAnnotation(legData),
+    legCurlPR: prAnnotation(legCurlData),
+    legExtPR: prAnnotation(legExtData),
+    abdPR: prAnnotation(abdData),
+    addPR: prAnnotation(addData),
+    sidePR: prAnnotation(sideData),
+    abMachinePR: prAnnotation(abMachineData),
+    calfPR: prAnnotation(calfData),
+  });
   pending.push(createChart('lowerMachineChart', 'line', [
     setsScatter('leg press', FADED.purple, GYM_START),
     setsScatter('leg curl', FADED.blue, GYM_START),
+    setsScatter('leg extension', FADED.pink, GYM_START),
     setsScatter('abductors', FADED.orange, GYM_START),
     setsScatter('adductors', FADED.red, GYM_START),
     setsScatter('side bend', FADED.green),
@@ -553,6 +875,8 @@ async function init() {
     trendline('leg', legData, FADED.purple),
     { label: 'Leg Curl (unilateral)', data: legCurlData, ...liftDefaults(COLORS.blue) },
     trendline('legCurl', legCurlData, FADED.blue),
+    { label: 'Leg Extension', data: legExtData, ...liftDefaults(COLORS.pink) },
+    trendline('legExt', legExtData, FADED.pink),
     { label: 'Abductors', data: abdData, ...liftDefaults(COLORS.orange) },
     trendline('abd', abdData, FADED.orange),
     { label: 'Adductors', data: addData, ...liftDefaults(COLORS.red) },
@@ -563,11 +887,15 @@ async function init() {
     trendline('abMachine', abMachineData, FADED.cyan),
     { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
     trendline('calf', calfData, FADED.yellow),
-  ], liftOpts('lbs')));
+  ], liftOpts('lbs', lowerMachineAnno)));
 
   // 15. Lower Body BB/DB (RDL Barbell + RDL Dumbbell)
   const rdlBBData = liftData('rdl barbell');
   const rdlDBData = liftData('rdl dumbbell');
+  const lowerBBDBAnno = compactAnnotations({
+    rdlBBPR: prAnnotation(rdlBBData),
+    rdlDBPR: prAnnotation(rdlDBData),
+  });
   pending.push(createChart('lowerBBDBChart', 'line', [
     setsScatter('rdl barbell', FADED.red),
     setsScatter('rdl dumbbell', FADED.yellow),
@@ -575,7 +903,7 @@ async function init() {
     trendline('rdlBB', rdlBBData, FADED.red),
     { label: 'RDL Dumbbell', data: rdlDBData, ...liftDefaults(COLORS.yellow) },
     trendline('rdlDB', rdlDBData, FADED.yellow),
-  ], liftOpts('lbs')));
+  ], liftOpts('lbs', lowerBBDBAnno)));
 
   // 16. Bodyweight (Pull-ups, Dips, Push-ups + Dead Hang seconds on right axis)
   const pullData = liftData('pull ups');
@@ -606,38 +934,124 @@ async function init() {
     opts.scales = {
       x: xScale('month'),
       y: { position: 'left', grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'reps', color: TICK_COLOR } },
-      y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'seconds', color: TICK_COLOR } },
+      // Dead-hang seconds is the only y1 series — color it blue to match the line.
+      y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: COLORS.blue }, title: { display: true, text: 'seconds', color: COLORS.blue } },
     };
     return opts;
   })()));
 
-  // 17. Neck (Extension + Flexion)
+  // 17. Neck (Extension + Flexion) — dot size scales with weight (heavier = bigger)
   const neckExtData = liftData('neck extension');
   const neckFlexData = liftData('neck flexion');
+  const neckExtSets = setsScatter('neck extension', FADED.red);
+  const neckFlexSets = setsScatter('neck flexion', FADED.blue);
+  // Shared weight scale across both exercises so dot sizes are comparable
+  const neckWeights = [
+    ...neckExtData.map(p => p.weight),
+    ...neckFlexData.map(p => p.weight),
+    ...neckExtSets.data.map(p => p.weight),
+    ...neckFlexSets.data.map(p => p.weight),
+  ].filter(w => typeof w === 'number');
+  const neckMinW = neckWeights.length ? Math.min(...neckWeights) : 0;
+  const neckMaxW = neckWeights.length ? Math.max(...neckWeights) : 1;
+  const neckRadius = weightPointRadius(neckMinW, neckMaxW);
+  const neckHoverRadius = weightPointRadius(neckMinW, neckMaxW, 3);
+  const neckLineDefaults = (color) => ({
+    ...lineDefaults(color),
+    pointRadius: neckRadius,
+    pointHoverRadius: neckHoverRadius,
+  });
+  // Neck chart uses reps (y) for the y-axis, so rank PRs by reps not weight.
+  const neckAnno = compactAnnotations({
+    neckExtPR: prAnnotation(neckExtData, 'PR', 'y'),
+    neckFlexPR: prAnnotation(neckFlexData, 'PR', 'y'),
+  });
+  const neckOpts = liftOpts('reps', neckAnno);
+  neckOpts.plugins.tooltip.callbacks = {
+    afterLabel: (ctx) => {
+      const w = ctx.raw?.weight;
+      const reps = ctx.raw?.reps;
+      const lines = [];
+      if (w != null) lines.push(`Weight: ${w} lbs`);
+      if (reps != null) lines.push(`Reps: ${reps}`);
+      return lines;
+    },
+  };
   pending.push(createChart('neckChart', 'line', [
-    setsScatter('neck extension', FADED.red),
-    setsScatter('neck flexion', FADED.blue),
-    { label: 'Neck Extension', data: neckExtData, ...liftDefaults(COLORS.red) },
+    { ...neckExtSets, pointRadius: neckRadius, pointHoverRadius: neckHoverRadius },
+    { ...neckFlexSets, pointRadius: neckRadius, pointHoverRadius: neckHoverRadius },
+    { label: 'Neck Extension', data: neckExtData, ...neckLineDefaults(COLORS.red) },
     trendline('neckExt', neckExtData, FADED.red),
-    { label: 'Neck Flexion', data: neckFlexData, ...liftDefaults(COLORS.blue) },
+    { label: 'Neck Flexion', data: neckFlexData, ...neckLineDefaults(COLORS.blue) },
     trendline('neckFlex', neckFlexData, FADED.blue),
-  ], liftOpts('reps')));
+  ], neckOpts));
 
   // Populate all charts simultaneously so animations start in sync
   requestAnimationFrame(() => {
     for (const entry of pending) {
       if (!entry) continue;
       entry.chart.data.datasets = entry.datasets;
-      entry.chart.options.animation = ANIMATION;
+      entry.chart.options.animation = initial ? ANIMATION : false;
       entry.chart.update();
       entry.chart.canvas.closest('.chart-card')?.classList.remove('loading');
       allCharts.push(entry.chart);
       // Double-click to reset zoom
       entry.chart.canvas.addEventListener('dblclick', () => entry.chart.resetZoom());
     }
+    applyChartMetadata(data);
   });
+}
 
-  wireRangePresets();
+/** Inject latest-value + last-updated chip into chart card headers. */
+function applyChartMetadata(data) {
+  const arrow = (delta) => delta > 0 ? '▲' : delta < 0 ? '▼' : '→';
+  const signed = (v, d = 1) => `${arrow(v)}${Math.abs(v).toFixed(d)}`;
+
+  const w = data.weight?.at(-1);
+  if (w) {
+    const vs30 = w.ma30 != null ? ` · ${signed(w.weight - w.ma30)} vs 30d` : '';
+    setChartMeta('weightChart', `${w.weight.toFixed(1)} lb${vs30}`, w.date);
+  }
+
+  const bf = data.bodyFat?.renpho?.at(-1);
+  if (bf) setChartMeta('bodyFatChart', `${bf.renpho}%`, bf.date);
+
+  const rhr = data.rhr?.at(-1);
+  if (rhr) setChartMeta('rhrChart', `${rhr.rhr} bpm`, rhr.date);
+
+  const hrv = data.hrv?.at(-1);
+  if (hrv) setChartMeta('hrvChart', `${hrv.hrv} ms`, hrv.date);
+
+  const vo2 = data.vo2max?.at(-1);
+  if (vo2) setChartMeta('vo2maxChart', `${vo2.vo2max}`, vo2.date);
+
+  const lastRun = data.runs?.all?.at(-1);
+  if (lastRun) setChartMeta('efChart', `${lastRun.distMi.toFixed(1)}mi · ${lastRun.avgHR}bpm`, lastRun.date);
+
+  const longLast = data.runs?.longRuns?.at(-1);
+  if (longLast) setChartMeta('longRunChart', `${longLast.distMi.toFixed(1)} mi`, longLast.date);
+
+  const weekly = data.runs?.weeklyMileage?.at(-1);
+  if (weekly) setChartMeta('weeklyMileageChart', `${weekly.miles.toFixed(1)} mi this wk`, weekly.week);
+
+  const recoveryRows = data.hrRecovery || [];
+  const recLast = recoveryRows.at(-1);
+  if (recLast) setChartMeta('hrRecoveryChart', `${recLast.recovery} bpm drop`, recLast.date);
+
+  const volLast = data.workoutVolume?.at(-1);
+  if (volLast) setChartMeta('volumeChart', `${volLast.total_sets} sets · ${volLast.training_days} days`, volLast.week);
+}
+
+function setupAutoRefresh() {
+  // In-place chart refresh instead of `location.reload()` — preserves scroll
+  // position, active page tab, the range button you clicked, and the version
+  // chip. Refresh fires when the tab is revisited after >1h, or every 6h.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && Date.now() - _lastRefresh > 3600000) {
+      rebuildCharts();
+    }
+  });
+  setInterval(() => { rebuildCharts(); }, 21600000);
 }
 
 function wirePageRouter() {
@@ -664,10 +1078,17 @@ function wirePageRouter() {
 function wireRangePresets() {
   const container = document.getElementById('rangePresets');
   if (!container) return;
+  // Sync button highlight with the (possibly localStorage-restored) currentRange
+  for (const b of container.querySelectorAll('button')) {
+    b.classList.toggle('active', b.dataset.range === currentRange);
+  }
+  updateRangeCaption();
   container.addEventListener('click', (e) => {
     const btn = e.target.closest('button[data-range]');
     if (!btn) return;
-    currentMin = rangeMin(btn.dataset.range);
+    currentRange = btn.dataset.range;
+    currentMin = rangeMin(currentRange);
+    try { localStorage.setItem('range', currentRange); } catch {}
     for (const b of container.querySelectorAll('button')) b.classList.toggle('active', b === btn);
     for (const chart of allCharts) {
       // resetZoom reverts scale options to construction values — reset first, then apply new min
@@ -676,6 +1097,7 @@ function wireRangePresets() {
       else chart.options.scales.x.min = currentMin;
       chart.update('none');
     }
+    updateRangeCaption();
   });
 }
 

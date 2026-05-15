@@ -43,6 +43,21 @@ header h1 {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+.repo-link {
+  display: inline-flex;
+  vertical-align: middle;
+  align-items: center;
+  color: var(--text-muted);
+  margin-left: 0.4rem;
+  font-size: 0.75rem;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.repo-link:hover {
+  color: var(--accent);
+}
+
 .range-presets {
   display: flex;
   justify-content: center;
@@ -135,7 +150,30 @@ main {
   font-size: 0.95rem;
   font-weight: 500;
   color: var(--text-muted);
-  margin-bottom: 0.75rem;
+}
+
+.chart-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin: 0.1rem 0 0.6rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.chart-latest { color: var(--text); }
+.chart-updated { opacity: 0.6; }
+
+.range-caption {
+  text-align: center;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-top: 0.35rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.7;
+  min-height: 1em;
 }
 
 canvas {

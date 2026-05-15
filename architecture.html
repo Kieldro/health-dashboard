@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Health Dashboard — Architecture</title>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card-bg: #1a1d27;
+      --card-bg-2: #141720;
+      --border: #2a2d3a;
+      --text: #e0e0e0;
+      --text-muted: #8b8fa3;
+      --accent: #4a9eff;
+      --green: #51cf66;
+      --red: #ff6b6b;
+      --yellow: #ffd43b;
+      --purple: #cc5de8;
+      --orange: #ff922b;
+      --cyan: #22d3ee;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      padding: 2rem 1.5rem 3rem;
+      min-height: 100vh;
+    }
+    header { text-align: center; margin-bottom: 2rem; }
+    header h1 { font-size: 1.7rem; font-weight: 600; }
+    header .subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-top: 0.35rem;
+    }
+    header a { color: var(--accent); text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+
+    /* ── Diagram grid ─────────────────────────────────────── */
+    .diagram {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 1rem;
+      max-width: 1700px;
+      margin: 0 auto;
+      position: relative;
+    }
+    .col-title {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      margin-bottom: 0.6rem;
+      text-align: center;
+      font-weight: 700;
+    }
+    .col-subtitle {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-align: center;
+      margin-bottom: 0.85rem;
+      opacity: 0.7;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .col { display: flex; flex-direction: column; gap: 0.45rem; }
+
+    .node {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-left-width: 3px;
+      border-radius: 6px;
+      padding: 0.55rem 0.7rem;
+      font-size: 0.82rem;
+      line-height: 1.35;
+      transition: transform 0.15s, border-color 0.15s;
+    }
+    .node:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent);
+    }
+    .node-name {
+      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+    }
+    .node-desc {
+      color: var(--text-muted);
+      font-size: 0.7rem;
+      margin-top: 0.15rem;
+    }
+    .node-time {
+      display: inline-block;
+      color: var(--accent);
+      font-size: 0.65rem;
+      font-family: ui-monospace, monospace;
+      margin-left: 0.4rem;
+      opacity: 0.8;
+    }
+
+    .node.blue   { border-left-color: var(--accent); }
+    .node.green  { border-left-color: var(--green); }
+    .node.red    { border-left-color: var(--red); }
+    .node.yellow { border-left-color: var(--yellow); }
+    .node.purple { border-left-color: var(--purple); }
+    .node.orange { border-left-color: var(--orange); }
+    .node.cyan   { border-left-color: var(--cyan); }
+
+    .node.cluster {
+      background: var(--card-bg-2);
+      padding: 0.55rem 0.7rem 0.45rem;
+    }
+    .cluster-title {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.35rem;
+    }
+    .cluster-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+    .chip {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 4px;
+      padding: 0.1rem 0.4rem;
+      font-size: 0.65rem;
+      font-family: ui-monospace, monospace;
+    }
+
+    /* ── Inter-column arrows (decorative) ──────────────────── */
+    .arrow-row {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 1rem;
+      margin: 0.5rem 0 0.25rem;
+    }
+    .arrow {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      color: var(--text-muted);
+      font-size: 1.1rem;
+      opacity: 0.4;
+      margin-right: -0.6rem;
+    }
+
+    /* ── Bottom sections ───────────────────────────────────── */
+    .section {
+      max-width: 1700px;
+      margin: 2rem auto 0;
+      padding: 1.25rem 1.5rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .section h2 {
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      font-weight: 500;
+      margin-bottom: 0.85rem;
+    }
+    .section p {
+      font-size: 0.85rem;
+      color: var(--text);
+      line-height: 1.55;
+      margin-bottom: 0.45rem;
+    }
+    .section code {
+      background: var(--bg);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      color: var(--accent);
+      font-family: ui-monospace, monospace;
+    }
+
+    /* ── Schedule timeline ─────────────────────────────────── */
+    .timeline {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+    }
+    .tl-step {
+      background: var(--card-bg-2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.6rem;
+      text-align: center;
+    }
+    .tl-time {
+      font-family: ui-monospace, monospace;
+      font-size: 0.75rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+    .tl-name {
+      font-family: ui-monospace, monospace;
+      font-size: 0.7rem;
+      color: var(--text);
+      margin-top: 0.15rem;
+    }
+    .tl-desc {
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+      line-height: 1.3;
+    }
+
+    @media (max-width: 1200px) {
+      .diagram { grid-template-columns: repeat(2, 1fr); }
+      .arrow-row { display: none; }
+      .col-title::before { content: '› '; opacity: 0.5; }
+      .timeline { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Health Dashboard — Architecture</h1>
+    <p class="subtitle">Personal metrics pipeline · <a href="https://health.keo.life" target="_blank" rel="noopener">health.keo.life</a></p>
+  </header>
+
+  <!-- ── Main flow diagram ──────────────────────────────────────── -->
+  <div class="diagram">
+
+    <!-- Col 1: External -->
+    <div>
+      <div class="col-title">1 · Sources</div>
+      <div class="col-subtitle">cloud APIs · files</div>
+      <div class="col">
+        <div class="node blue">
+          <div class="node-name">Garmin Connect</div>
+          <div class="node-desc">sleep, RHR, HRV, VO2max, runs, daily summary</div>
+        </div>
+        <div class="node green">
+          <div class="node-name">Renpho Cloud</div>
+          <div class="node-desc">scale weight + BIA body fat</div>
+        </div>
+        <div class="node orange">
+          <div class="node-name">Strava API</div>
+          <div class="node-desc">activities + per-second HR streams</div>
+        </div>
+        <div class="node purple">
+          <div class="node-name">BodySpec PDF</div>
+          <div class="node-desc">DEXA scans → manual import</div>
+        </div>
+        <div class="node yellow">
+          <div class="node-name">Manual entry</div>
+          <div class="node-desc">tape measurements (neck, bicep, …)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 2: Sync -->
+    <div>
+      <div class="col-title">2 · Ingestion</div>
+      <div class="col-subtitle">~/garmin-sync · cron 23:00</div>
+      <div class="col">
+        <div class="node blue">
+          <div class="node-name">garmindb_cli.py<span class="node-time">23:00</span></div>
+          <div class="node-desc">downloads + analyzes Garmin → garmin.db</div>
+        </div>
+        <div class="node green">
+          <div class="node-name">renpho_sync.py<span class="node-time">23:05</span></div>
+          <div class="node-desc">scale → weight + body_fat tables</div>
+        </div>
+        <div class="node blue">
+          <div class="node-name">sync_v2.py<span class="node-time">23:08</span></div>
+          <div class="node-desc">Garmin daily data → JSON masters</div>
+        </div>
+        <div class="node cyan">
+          <div class="node-name">merge_daily.py<span class="node-time">23:10</span></div>
+          <div class="node-desc">stitches unified daily JSON</div>
+        </div>
+        <div class="node red">
+          <div class="node-name">workout_sync.py<span class="node-time">23:12</span></div>
+          <div class="node-desc">lifting sets / volume tables</div>
+        </div>
+        <div class="node orange">
+          <div class="node-name">strava_sync.py<span class="node-time">23:15</span></div>
+          <div class="node-desc">activities + streams pull</div>
+        </div>
+        <div class="node orange">
+          <div class="node-name">strava_merge.py<span class="node-time">23:20</span></div>
+          <div class="node-desc">merges into running_activities</div>
+        </div>
+        <div class="node red">
+          <div class="node-name">hr_recovery.py<span class="node-time">23:25</span></div>
+          <div class="node-desc">computes 60s HR drop per run</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 3: Storage -->
+    <div>
+      <div class="col-title">3 · Storage</div>
+      <div class="col-subtitle">SQLite + JSON masters</div>
+      <div class="col">
+        <div class="node blue cluster">
+          <div class="cluster-title">garmin.db <span style="opacity:0.6">(SQLite)</span></div>
+          <div class="node-desc" style="margin-bottom:0.4rem">~/HealthData/DBs/</div>
+          <div class="cluster-items">
+            <span class="chip">weight</span>
+            <span class="chip">body_fat</span>
+            <span class="chip">bodyspec_scans</span>
+            <span class="chip">measurements</span>
+            <span class="chip">resting_hr</span>
+            <span class="chip">hrv</span>
+            <span class="chip">vo2max</span>
+            <span class="chip">running_activities</span>
+            <span class="chip">workout_weeks</span>
+            <span class="chip">workout_exercises</span>
+            <span class="chip">workout_sets</span>
+            <span class="chip">sleep</span>
+          </div>
+        </div>
+        <div class="node orange cluster">
+          <div class="cluster-title">data/master <span style="opacity:0.6">(JSON)</span></div>
+          <div class="node-desc" style="margin-bottom:0.4rem">~/garmin-sync/data/master/</div>
+          <div class="cluster-items">
+            <span class="chip">renpho_raw.json</span>
+            <span class="chip">body_composition.json</span>
+            <span class="chip">hr_recovery.json</span>
+            <span class="chip">strava_activities.json</span>
+            <span class="chip">strava_streams/*</span>
+            <span class="chip">unified_daily.json</span>
+            <span class="chip">measurements.json</span>
+            <span class="chip">activities.json</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 4: Server -->
+    <div>
+      <div class="col-title">4 · Server</div>
+      <div class="col-subtitle">localhost:8888 · systemd</div>
+      <div class="col">
+        <div class="node accent" style="border-left-color: var(--accent)">
+          <div class="node-name">serve.py</div>
+          <div class="node-desc">Python stdlib HTTP · single-threaded · stateless</div>
+        </div>
+        <div class="node blue cluster">
+          <div class="cluster-title">/api/* (13 routes)</div>
+          <div class="cluster-items">
+            <span class="chip">/weight</span>
+            <span class="chip">/bodyfat</span>
+            <span class="chip">/dexa</span>
+            <span class="chip">/measurements</span>
+            <span class="chip">/rhr</span>
+            <span class="chip">/hrv</span>
+            <span class="chip">/vo2max</span>
+            <span class="chip">/activities</span>
+            <span class="chip">/workout-volume</span>
+            <span class="chip">/lift-progression</span>
+            <span class="chip">/workout-sets</span>
+            <span class="chip">/hr-recovery</span>
+            <span class="chip">/zone-minutes</span>
+            <span class="chip">/version</span>
+          </div>
+        </div>
+        <div class="node cyan">
+          <div class="node-name">Static files</div>
+          <div class="node-desc">index.html · *.js · *.css · favicon</div>
+        </div>
+        <div class="node green">
+          <div class="node-name">health-dashboard.service</div>
+          <div class="node-desc">systemd user unit · auto-start on login</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 5: Frontend -->
+    <div>
+      <div class="col-title">5 · Frontend</div>
+      <div class="col-subtitle">browser · static SPA</div>
+      <div class="col">
+        <div class="node blue">
+          <div class="node-name">index.html</div>
+          <div class="node-desc">3 pages: Body · Running · Lifts</div>
+        </div>
+        <div class="node cyan">
+          <div class="node-name">data.js</div>
+          <div class="node-desc">Promise.all(fetch /api/*) → reshape</div>
+        </div>
+        <div class="node accent">
+          <div class="node-name">app.js</div>
+          <div class="node-desc">creates ~20 Chart.js charts</div>
+        </div>
+        <div class="node yellow">
+          <div class="node-name">Chart.js 4.4.7</div>
+          <div class="node-desc">+ date-fns adapter · zoom · hammer</div>
+        </div>
+        <div class="node purple">
+          <div class="node-name">styles.css</div>
+          <div class="node-desc">dark theme · CSS grid layout</div>
+        </div>
+        <div class="node green">
+          <div class="node-name">auto-refresh</div>
+          <div class="node-desc">on visibility · every 6h</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Col 6: Delivery -->
+    <div>
+      <div class="col-title">6 · Delivery</div>
+      <div class="col-subtitle">public over Cloudflare</div>
+      <div class="col">
+        <div class="node orange">
+          <div class="node-name">cloudflared</div>
+          <div class="node-desc">QUIC tunnel from this box → CF edge</div>
+        </div>
+        <div class="node green">
+          <div class="node-name">cloudflared.service</div>
+          <div class="node-desc">systemd system unit · token-auth</div>
+        </div>
+        <div class="node blue">
+          <div class="node-name">health.keo.life</div>
+          <div class="node-desc">CF-managed DNS + TLS</div>
+        </div>
+        <div class="node yellow">
+          <div class="node-name">Browser</div>
+          <div class="node-desc">you · phone · anyone with the URL</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Decorative arrows row (between columns 1-6) -->
+    <div class="arrow-row" aria-hidden="true">
+      <div class="arrow">→</div>
+      <div class="arrow">→</div>
+      <div class="arrow">→</div>
+      <div class="arrow">→</div>
+      <div class="arrow">→</div>
+      <div></div>
+    </div>
+  </div>
+
+  <!-- ── Schedule timeline ──────────────────────────────────────── -->
+  <section class="section">
+    <h2>Nightly sync schedule <span style="font-family:ui-monospace,monospace;color:var(--accent);font-size:0.78rem">crontab · 23:00 CDT</span></h2>
+    <p style="margin-bottom:0.8rem">Runs in this exact order so each step's output is available to the next:</p>
+    <div class="timeline">
+      <div class="tl-step"><div class="tl-time">23:00</div><div class="tl-name">garmindb_cli</div><div class="tl-desc">download + analyze</div></div>
+      <div class="tl-step"><div class="tl-time">23:05</div><div class="tl-name">renpho_sync</div><div class="tl-desc">scale → DB</div></div>
+      <div class="tl-step"><div class="tl-time">23:08</div><div class="tl-name">sync_v2</div><div class="tl-desc">Garmin → JSON</div></div>
+      <div class="tl-step"><div class="tl-time">23:10</div><div class="tl-name">merge_daily</div><div class="tl-desc">unified.json</div></div>
+      <div class="tl-step"><div class="tl-time">23:12</div><div class="tl-name">workout_sync</div><div class="tl-desc">lifts → DB</div></div>
+      <div class="tl-step"><div class="tl-time">23:15</div><div class="tl-name">strava_sync</div><div class="tl-desc">activities + streams</div></div>
+      <div class="tl-step"><div class="tl-time">23:20</div><div class="tl-name">strava_merge</div><div class="tl-desc">→ running_activities</div></div>
+      <div class="tl-step"><div class="tl-time">23:25</div><div class="tl-name">hr_recovery</div><div class="tl-desc">60s drop / run</div></div>
+    </div>
+  </section>
+
+  <!-- ── How a request flows ───────────────────────────────────── -->
+  <section class="section">
+    <h2>Request flow — what happens when you load the page</h2>
+    <p><strong>1.</strong> Browser → <code>https://health.keo.life/</code> → CF edge → tunnel → <code>localhost:8888</code> → <code>serve.py</code> sends <code>index.html</code>.</p>
+    <p><strong>2.</strong> Page imports <code>app.js</code> (with cache-busting <code>?v=Date.now()</code>), which imports <code>data.js</code>.</p>
+    <p><strong>3.</strong> <code>data.js</code> fires 13 parallel <code>fetch('/api/*')</code> calls — each hits a handler in <code>serve.py</code> that runs one SQL statement against <code>~/HealthData/DBs/garmin.db</code> (or reads a JSON master file for HR-recovery / zone-minutes).</p>
+    <p><strong>4.</strong> All responses come back as JSON with <code>Cache-Control: no-store</code>; <code>data.js</code> reshapes them (e.g. computes Navy BF%, weekly mileage, moving averages).</p>
+    <p><strong>5.</strong> <code>app.js</code> hands each dataset to a Chart.js canvas. The skeleton-pulse overlay on each card fades as the chart populates.</p>
+    <p><strong>6.</strong> The page auto-reloads when you tab back in after 1h, or every 6h if left open.</p>
+  </section>
+
+  <!-- ── Key design choices ────────────────────────────────────── -->
+  <section class="section">
+    <h2>Notable design choices</h2>
+    <p><strong>SQLite as the source of truth.</strong> The sync pipeline owns <code>garmin.db</code>; the dashboard only reads. Adding a chart = adding one SQL query in <code>serve.py</code> and one dataset in <code>app.js</code>.</p>
+    <p><strong>No build step.</strong> Plain HTML + ES modules + Chart.js from a CDN. Edit a file → reload the page. The only "deployment" is <code>systemctl --user restart health-dashboard.service</code>.</p>
+    <p><strong>Stateless server.</strong> Every API call is a fresh SQL query. The one exception is <code>/api/zone-minutes</code>, which caches its CPU-heavy result keyed on the input files' mtime.</p>
+    <p><strong>Public via Cloudflare Tunnel.</strong> No open inbound ports on this machine; <code>cloudflared</code> dials out to CF edge and CF terminates TLS. The dashboard is reachable from anywhere without VPN, and the box itself stays firewalled.</p>
+  </section>
+</body>
+</html>

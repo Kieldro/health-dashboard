@@ -5,24 +5,22 @@ async function fetchJSON(path) {
 }
 
 export async function loadAllData() {
-  const [weight, bodyfat, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes] = await Promise.all([
-    fetchJSON('/api/weight'),
-    fetchJSON('/api/bodyfat'),
-    fetchJSON('/api/measurements'),
-    fetchJSON('/api/rhr'),
-    fetchJSON('/api/hrv'),
-    fetchJSON('/api/activities'),
-    fetchJSON('/api/vo2max'),
-    fetchJSON('/api/workout-volume'),
-    fetchJSON('/api/lift-progression'),
-    fetchJSON('/api/workout-sets'),
-    fetchJSON('/api/hr-recovery'),
-    fetchJSON('/api/zone-minutes'),
-  ]);
+  const endpoints = [
+    '/api/weight', '/api/bodyfat', '/api/dexa', '/api/measurements',
+    '/api/rhr', '/api/hrv', '/api/activities', '/api/vo2max',
+    '/api/workout-volume', '/api/lift-progression', '/api/workout-sets',
+    '/api/hr-recovery', '/api/zone-minutes',
+  ];
+  const results = await Promise.allSettled(endpoints.map(fetchJSON));
+  const [weight, bodyfat, dexa, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes] = results.map((r, i) => {
+    if (r.status === 'fulfilled') return r.value;
+    console.warn(`Failed to load ${endpoints[i]}:`, r.reason);
+    return [];
+  });
 
   return {
     weight: processWeight(weight),
-    bodyFat: processBodyFat(bodyfat, measurements),
+    bodyFat: processBodyFat(bodyfat, measurements, dexa),
     bodyMeasurements: processMeasurements(measurements),
     rhr,
     hrv,
@@ -54,19 +52,20 @@ function processWeight(rows) {
 }
 
 // --- Body Fat ---
-function processBodyFat(bodyfat, measurements) {
-  // Navy BF% from measurements (neck + waist, height = 72 inches for 6'0")
+function processBodyFat(bodyfat, measurements, dexa) {
+  // Navy BF% from measurements (neck + stomach/abdomen at navel, height = 71.75 inches)
   const HEIGHT_IN = 72;
   const navy = measurements
-    .filter(m => m.neck && m.waist)
+    .filter(m => m.neck && m.stomach)
     .map(m => {
-      const bf = 86.010 * Math.log10(m.waist - m.neck) - 70.041 * Math.log10(HEIGHT_IN) + 36.76;
+      const bf = 86.010 * Math.log10(m.stomach - m.neck) - 70.041 * Math.log10(HEIGHT_IN) + 36.76;
       return { date: m.date, navy: Math.round(bf * 10) / 10 };
     });
 
   return {
     renpho: bodyfat.map(d => ({ date: d.date, renpho: d.bodyfat })),
     navy,
+    dexa: dexa.map(d => ({ date: d.date, dexa: d.bodyfat })),
   };
 }
 
