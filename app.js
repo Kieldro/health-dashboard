@@ -894,18 +894,20 @@ async function rebuildCharts(initial = false) {
     pink: 'rgba(255,107,203,0.3)',
   };
 
-  // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine + Cable Row + Dips Machine)
+  // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine + Cable Row + Dips Machine + Dips Weighted)
   const chestData = liftData('chest press', GYM_START);
   const inclineData = liftData('incline press', GYM_START);
   const rowData = liftData('row machine', GYM_START);
   const cableRowData = liftData('cable row', GYM_START);
   const dipsMachineData = liftData('dips machine', GYM_START);
+  const dipsWeightedData = liftData('dips weighted', GYM_START);
   const upperMachineAnno = compactAnnotations({
     chestPR: prAnnotation(chestData, 'Chest'),
     inclinePR: prAnnotation(inclineData, 'Incline'),
     rowPR: prAnnotation(rowData, 'Row'),
     cableRowPR: prAnnotation(cableRowData, 'Cable Row'),
-    dipsMachinePR: prAnnotation(dipsMachineData, 'Dips'),
+    dipsMachinePR: prAnnotation(dipsMachineData, 'Dips M'),
+    dipsWeightedPR: prAnnotation(dipsWeightedData, 'Dips W'),
   });
   pending.push(createChart('upperMachineChart', 'line', [
     setsScatter('chest press', FADED.red, GYM_START),
@@ -913,6 +915,7 @@ async function rebuildCharts(initial = false) {
     setsScatter('row machine', FADED.blue, GYM_START),
     setsScatter('cable row', FADED.yellow, GYM_START),
     setsScatter('dips machine', FADED.orange, GYM_START),
+    setsScatter('dips weighted', FADED.purple, GYM_START),
     { label: 'Chest Press', data: chestData, ...liftDefaults(COLORS.red) },
     trendline('chest', chestData, FADED.red),
     { label: 'Incline Press', data: inclineData, ...liftDefaults(COLORS.green) },
@@ -923,6 +926,8 @@ async function rebuildCharts(initial = false) {
     trendline('cableRow', cableRowData, FADED.yellow),
     { label: 'Dips (machine)', data: dipsMachineData, ...liftDefaults(COLORS.orange) },
     trendline('dipsMachine', dipsMachineData, FADED.orange),
+    { label: 'Dips (weighted)', data: dipsWeightedData, ...liftDefaults(COLORS.purple) },
+    trendline('dipsWeighted', dipsWeightedData, FADED.purple),
   ], liftOpts('lbs', upperMachineAnno)));
 
   // 13. Upper Body DB (Lat Raise, Hammer Curls, Kelso Shrugs)
