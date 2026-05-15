@@ -197,14 +197,17 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
         filter: (item) => !item.dataset.label?.startsWith('_'),
       },
       zoom: {
+        // 'xy' enables both wheel-zoom Y and drag-pan Y in addition to X.
+        // Dual-axis charts (5K, Bodyweight) override back to 'x' below since
+        // y-zoom on a two-scale chart is ambiguous about which scale to zoom.
         zoom: {
           wheel: { enabled: true },
           pinch: { enabled: true },
-          mode: 'x',
+          mode: 'xy',
         },
         pan: {
           enabled: true,
-          mode: 'x',
+          mode: 'xy',
         },
       },
     },
@@ -632,6 +635,9 @@ async function rebuildCharts(initial = false) {
         ? `Pace: ${fmtPace(ctx.parsed.y)}`
         : `${ctx.dataset.label}: ${ctx.parsed.y}`,
     };
+    // Dual y-axes — y-zoom is ambiguous, restrict to x.
+    opts.plugins.zoom.zoom.mode = 'x';
+    opts.plugins.zoom.pan.mode = 'x';
     mergeAnnotations(opts, runningEventAnno);
     pending.push(createChart('fiveKChart', 'line', [
       {
@@ -1029,6 +1035,9 @@ async function rebuildCharts(initial = false) {
     const opts = baseOptions({ showLegend: true, timeUnit: 'month' });
     opts.interaction = { mode: 'nearest', intersect: false };
     opts.plugins.legend.labels.filter = legendFilterTrend;
+    // Dual y-axes — y-zoom is ambiguous, restrict to x.
+    opts.plugins.zoom.zoom.mode = 'x';
+    opts.plugins.zoom.pan.mode = 'x';
     opts.scales = {
       x: xScale('month'),
       y: { position: 'left', grid: { color: GRID_COLOR }, ticks: { color: TICK_COLOR }, title: { display: true, text: 'reps', color: TICK_COLOR } },
