@@ -306,22 +306,9 @@
       <div class="col-subtitle">SQLite + JSON masters</div>
       <div class="col">
         <div class="node blue cluster">
-          <div class="cluster-title">garmin.db <span style="opacity:0.6">(SQLite)</span></div>
+          <div class="cluster-title">garmin.db <span style="opacity:0.6">(SQLite · live)</span></div>
           <div class="node-desc" style="margin-bottom:0.4rem">~/HealthData/DBs/</div>
-          <div class="cluster-items">
-            <span class="chip">weight</span>
-            <span class="chip">body_fat</span>
-            <span class="chip">bodyspec_scans</span>
-            <span class="chip">measurements</span>
-            <span class="chip">resting_hr</span>
-            <span class="chip">hrv</span>
-            <span class="chip">vo2max</span>
-            <span class="chip">running_activities</span>
-            <span class="chip">workout_weeks</span>
-            <span class="chip">workout_exercises</span>
-            <span class="chip">workout_sets</span>
-            <span class="chip">sleep</span>
-          </div>
+          <div class="cluster-items" id="dbTablesChips"></div>
         </div>
         <div class="node orange cluster">
           <div class="cluster-title">data/master <span style="opacity:0.6">(JSON)</span></div>
@@ -350,23 +337,8 @@
           <div class="node-desc">Python stdlib HTTP · single-threaded · stateless</div>
         </div>
         <div class="node blue cluster">
-          <div class="cluster-title">/api/* (13 routes)</div>
-          <div class="cluster-items">
-            <span class="chip">/weight</span>
-            <span class="chip">/bodyfat</span>
-            <span class="chip">/dexa</span>
-            <span class="chip">/measurements</span>
-            <span class="chip">/rhr</span>
-            <span class="chip">/hrv</span>
-            <span class="chip">/vo2max</span>
-            <span class="chip">/activities</span>
-            <span class="chip">/workout-volume</span>
-            <span class="chip">/lift-progression</span>
-            <span class="chip">/workout-sets</span>
-            <span class="chip">/hr-recovery</span>
-            <span class="chip">/zone-minutes</span>
-            <span class="chip">/version</span>
-          </div>
+          <div class="cluster-title">/api/* <span id="apiRouteCount" style="opacity:0.6">(live)</span></div>
+          <div class="cluster-items" id="apiRouteChips"></div>
         </div>
         <div class="node cyan">
           <div class="node-name">Static files</div>
@@ -450,16 +422,7 @@
   <section class="section">
     <h2>Nightly sync schedule <span style="font-family:ui-monospace,monospace;color:var(--accent);font-size:0.78rem">crontab · 23:00 CDT</span></h2>
     <p style="margin-bottom:0.8rem">Runs in this exact order so each step's output is available to the next:</p>
-    <div class="timeline">
-      <div class="tl-step"><div class="tl-time">23:00</div><div class="tl-name">garmindb_cli</div><div class="tl-desc">download + analyze</div></div>
-      <div class="tl-step"><div class="tl-time">23:05</div><div class="tl-name">renpho_sync</div><div class="tl-desc">scale → DB</div></div>
-      <div class="tl-step"><div class="tl-time">23:08</div><div class="tl-name">sync_v2</div><div class="tl-desc">Garmin → JSON</div></div>
-      <div class="tl-step"><div class="tl-time">23:10</div><div class="tl-name">merge_daily</div><div class="tl-desc">unified.json</div></div>
-      <div class="tl-step"><div class="tl-time">23:12</div><div class="tl-name">workout_sync</div><div class="tl-desc">lifts → DB</div></div>
-      <div class="tl-step"><div class="tl-time">23:15</div><div class="tl-name">strava_sync</div><div class="tl-desc">activities + streams</div></div>
-      <div class="tl-step"><div class="tl-time">23:20</div><div class="tl-name">strava_merge</div><div class="tl-desc">→ running_activities</div></div>
-      <div class="tl-step"><div class="tl-time">23:25</div><div class="tl-name">hr_recovery</div><div class="tl-desc">60s drop / run</div></div>
-    </div>
+    <div class="timeline" id="cronTimeline"></div>
   </section>
 
   <!-- ── How a request flows ───────────────────────────────────── -->
@@ -480,6 +443,77 @@
     <p><strong>No build step.</strong> Plain HTML + ES modules + Chart.js from a CDN. Edit a file → reload the page. The only "deployment" is <code>systemctl --user restart health-dashboard.service</code>.</p>
     <p><strong>Stateless server.</strong> Every API call is a fresh SQL query. The one exception is <code>/api/zone-minutes</code>, which caches its CPU-heavy result keyed on the input files' mtime.</p>
     <p><strong>Public via Cloudflare Tunnel.</strong> No open inbound ports on this machine; <code>cloudflared</code> dials out to CF edge and CF terminates TLS. The dashboard is reachable from anywhere without VPN, and the box itself stays firewalled.</p>
+    <p style="margin-top:0.6rem;font-size:0.78rem;color:var(--text-muted)"><strong>Where this page gets its data:</strong> the SQLite-table chips fetch <code>/api/schema</code>, the route chips fetch <code>/api/routes</code>, the schedule reads <code>/api/cron</code>. So this diagram can't drift from the running system — it shows what's actually there right now. Static parts (boxes, columns) live in the markup. Detailed prose docs live in <code>CLAUDE.md</code> alongside the code on GitHub.</p>
   </section>
+
+  <script>
+    // Hydrate live chip lists from the running server. Falls back silently if
+    // any endpoint is unreachable — the page still works as a static diagram.
+    async function fetchJSON(url) {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) throw new Error(r.status);
+        return await r.json();
+      } catch {
+        return null;
+      }
+    }
+    function chip(text) {
+      const el = document.createElement('span');
+      el.className = 'chip';
+      el.textContent = text;
+      return el;
+    }
+
+    (async () => {
+      // DB tables
+      const schema = await fetchJSON('/api/schema');
+      const dbEl = document.getElementById('dbTablesChips');
+      if (schema && dbEl) {
+        // Filter out internal/empty tables; sort by row interest
+        const visible = schema.filter(t =>
+          !t.table.startsWith('_') && t.table !== 'attributes' && t.table !== 'files' && t.table !== 'files_view' && t.table !== 'devices' && t.table !== 'device_info' && t.table !== 'device_info_view' && t.table !== 'sleep_events' && t.table !== 'stress'
+        );
+        visible.forEach(t => dbEl.appendChild(chip(t.table)));
+      }
+
+      // API routes
+      const routes = await fetchJSON('/api/routes');
+      const apiEl = document.getElementById('apiRouteChips');
+      const apiCountEl = document.getElementById('apiRouteCount');
+      if (routes && apiEl) {
+        routes.forEach(r => apiEl.appendChild(chip(r.replace(/^\/api/, ''))));
+        if (apiCountEl) apiCountEl.textContent = `(${routes.length} routes · live)`;
+      }
+
+      // Cron timeline
+      const cron = await fetchJSON('/api/cron');
+      const tlEl = document.getElementById('cronTimeline');
+      if (cron && tlEl) {
+        const friendly = {
+          'garmindb_cli.py': 'download + analyze',
+          'renpho_sync.py': 'scale → DB',
+          'sync_v2.py': 'Garmin → JSON',
+          'merge_daily.py': 'unified.json',
+          'workout_sync.py': 'lifts → DB',
+          'strava_sync.py': 'activities + streams',
+          'strava_merge.py': '→ running_activities',
+          'hr_recovery.py': '60s drop / run',
+          'backup_garmin_db.sh': 'rotating snapshot',
+        };
+        // CSS targets exactly N columns; recompute for live count.
+        tlEl.style.gridTemplateColumns = `repeat(${Math.min(cron.length, 9)}, minmax(0, 1fr))`;
+        cron.forEach(job => {
+          const step = document.createElement('div');
+          step.className = 'tl-step';
+          step.innerHTML = `
+            <div class="tl-time">${job.time}</div>
+            <div class="tl-name">${job.name.replace(/\.(py|sh)$/, '')}</div>
+            <div class="tl-desc">${friendly[job.name] || ''}</div>`;
+          tlEl.appendChild(step);
+        });
+      }
+    })();
+  </script>
 </body>
 </html>

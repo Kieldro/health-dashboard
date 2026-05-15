@@ -301,6 +301,72 @@ function createChart(canvasId, type, datasets, options) {
   return { chart, datasets };
 }
 
+// ── Cross-chart crosshair plugin ────────────────────────────────────────
+// Hover any chart on a page → a faint vertical dashed line appears at the
+// same x-date on every other chart on the same page. Helps correlate metrics
+// at a glance (e.g. weight spike vs. that week's HRV dip).
+//
+// Performance: sibling redraws are throttled via requestAnimationFrame so
+// rapid mouse motion doesn't redraw 5+ charts at 60Hz.
+const Crosshair = {
+  id: 'crosshair',
+  state: { ts: null, origin: null },
+  _raf: null,
+
+  afterEvent(chart, args) {
+    const e = args.event;
+    const xs = chart.scales?.x;
+    if (!xs) return;
+    if (e.type === 'mousemove' && e.x >= xs.left && e.x <= xs.right) {
+      const ts = xs.getValueForPixel(e.x);
+      if (ts !== Crosshair.state.ts) {
+        Crosshair.state.ts = ts;
+        Crosshair.state.origin = chart;
+        Crosshair._scheduleSiblings(chart);
+      }
+    } else if (e.type === 'mouseout' || e.type === 'mouseleave') {
+      if (Crosshair.state.ts !== null) {
+        Crosshair.state.ts = null;
+        Crosshair.state.origin = null;
+        Crosshair._scheduleSiblings(chart);
+      }
+    }
+  },
+
+  _scheduleSiblings(originChart) {
+    if (Crosshair._raf) return;
+    Crosshair._raf = requestAnimationFrame(() => {
+      Crosshair._raf = null;
+      const page = originChart.canvas.closest('.page');
+      if (!page) return;
+      for (const c of allCharts) {
+        if (c === originChart) continue;
+        if (c.canvas.closest('.page') === page) c.draw();
+      }
+    });
+  },
+
+  afterDraw(chart) {
+    const ts = Crosshair.state.ts;
+    if (ts == null) return;
+    const xs = chart.scales?.x;
+    if (!xs) return;
+    const px = xs.getPixelForValue(ts);
+    if (px < xs.left || px > xs.right) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(px, chart.chartArea.top);
+    ctx.lineTo(px, chart.chartArea.bottom);
+    ctx.stroke();
+    ctx.restore();
+  },
+};
+Chart.register(Crosshair);
+
 async function init() {
   // Activate the target page BEFORE charts are created so their containers have
   // real dimensions — Chart.js with maintainAspectRatio:false can't size inside
