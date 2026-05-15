@@ -348,6 +348,7 @@ async function rebuildCharts(initial = false) {
   const pending = [];
 
   // Event annotations: DEXA scan dates auto-seed body charts; EVENTS array adds user events per scope.
+  // (DEXA auto-injection removed — was noise; DEXA points already show as green diamonds on body-fat chart.)
   const bodyEvents = eventsForScope('body');
   const runningEvents = eventsForScope('running');
   const liftsEvents = eventsForScope('lifts');
@@ -693,34 +694,59 @@ async function rebuildCharts(initial = false) {
       .filter(p => p.y != null && p.y > 0);
   }
   /**
-   * Build a Chart.js annotation marker at the heaviest-weight point in a lift series.
-   * `rankBy` picks which field decides "best": 'weight' (default) or 'y' (for rep-based lifts).
-   * Returns null when there's nothing to mark.
+   * Build a Chart.js annotation pair (star + label) at the heaviest-weight
+   * point in a lift series. Returns a flat object with two entries keyed by
+   * the slugified exercise name, suitable for Object.assign-ing into a
+   * chart's annotations dict.
+   *
+   * IMPORTANT: chartjs-plugin-annotation@3 does NOT honor a `label` sub-option
+   * on `type: 'point'` — labels must be their own `type: 'label'` annotation.
+   * That bug silently swallowed the "PR" text before this rewrite.
+   *
+   * `rankBy` picks which field decides "best": 'weight' (default) or 'y'.
    */
-  function prAnnotation(dataPoints, key = 'PR', rankBy = 'weight') {
+  function prAnnotation(dataPoints, label = 'PR', rankBy = 'weight') {
     const arr = (dataPoints || []).filter(p => p && p[rankBy] != null && p.y != null);
-    if (arr.length === 0) return null;
+    if (arr.length === 0) return {};
     const top = arr.reduce((m, p) => p[rankBy] > m[rankBy] ? p : m);
+    const id = label.replace(/\W+/g, '') || 'pr';
+    const valueText = rankBy === 'weight' && top.weight != null
+      ? `${label} ${Math.round(top.weight)}`
+      : label;
     return {
-      type: 'point',
-      xValue: top.x,
-      yValue: top.y,
-      radius: 6,
-      backgroundColor: COLORS.yellow,
-      borderColor: COLORS.yellow,
-      borderWidth: 0,
-      pointStyle: 'star',
-      label: { display: true, content: key, font: { size: 9 }, color: COLORS.yellow, position: 'top', yAdjust: -8 },
+      [`${id}_pt`]: {
+        type: 'point',
+        xValue: top.x,
+        yValue: top.y,
+        radius: 8,
+        backgroundColor: COLORS.yellow,
+        borderColor: '#0f1117',
+        borderWidth: 2,
+        pointStyle: 'star',
+      },
+      [`${id}_lbl`]: {
+        type: 'label',
+        xValue: top.x,
+        yValue: top.y,
+        content: valueText,
+        color: COLORS.yellow,
+        backgroundColor: 'rgba(15,17,23,0.78)',
+        borderColor: COLORS.yellow,
+        borderWidth: 1,
+        borderRadius: 4,
+        padding: 4,
+        font: { size: 10, weight: 'bold' },
+        yAdjust: -18,
+      },
     };
   }
-  /** Drop null entries from a name→annotation map. Returns undefined if empty. */
+  /** Merge several annotation maps. Empty/undefined entries are skipped. */
   function compactAnnotations(map) {
     const out = {};
-    let any = false;
-    for (const [k, v] of Object.entries(map)) {
-      if (v) { out[k] = v; any = true; }
+    for (const v of Object.values(map)) {
+      if (v && typeof v === 'object') Object.assign(out, v);
     }
-    return any ? out : undefined;
+    return Object.keys(out).length ? out : undefined;
   }
   /** Scatter of every individual set, overlaid at the chart's same y mapping. */
   function setsScatter(exercise, color, filterDate) {
@@ -802,10 +828,10 @@ async function rebuildCharts(initial = false) {
   const rowData = liftData('row machine', GYM_START);
   const cableRowData = liftData('cable row', GYM_START);
   const upperMachineAnno = compactAnnotations({
-    chestPR: prAnnotation(chestData),
-    inclinePR: prAnnotation(inclineData),
-    rowPR: prAnnotation(rowData),
-    cableRowPR: prAnnotation(cableRowData),
+    chestPR: prAnnotation(chestData, 'Chest'),
+    inclinePR: prAnnotation(inclineData, 'Incline'),
+    rowPR: prAnnotation(rowData, 'Row'),
+    cableRowPR: prAnnotation(cableRowData, 'Cable Row'),
   });
   pending.push(createChart('upperMachineChart', 'line', [
     setsScatter('chest press', FADED.red, GYM_START),
@@ -827,9 +853,9 @@ async function rebuildCharts(initial = false) {
   const curlData = liftData('hammer curl');
   const shrugData = liftData('kelso shrugs');
   const upperDBAnno = compactAnnotations({
-    latPR: prAnnotation(latData),
-    curlPR: prAnnotation(curlData),
-    shrugPR: prAnnotation(shrugData),
+    latPR: prAnnotation(latData, 'Lat Raise'),
+    curlPR: prAnnotation(curlData, 'Hammer'),
+    shrugPR: prAnnotation(shrugData, 'Shrug'),
   });
   pending.push(createChart('upperDBChart', 'line', [
     setsScatter('lateral raise', FADED.green),
@@ -853,14 +879,14 @@ async function rebuildCharts(initial = false) {
   const abMachineData = liftData('ab machine');
   const calfData = liftData('calf raise seated');
   const lowerMachineAnno = compactAnnotations({
-    legPR: prAnnotation(legData),
-    legCurlPR: prAnnotation(legCurlData),
-    legExtPR: prAnnotation(legExtData),
-    abdPR: prAnnotation(abdData),
-    addPR: prAnnotation(addData),
-    sidePR: prAnnotation(sideData),
-    abMachinePR: prAnnotation(abMachineData),
-    calfPR: prAnnotation(calfData),
+    legPR: prAnnotation(legData, 'Leg Press'),
+    legCurlPR: prAnnotation(legCurlData, 'Leg Curl'),
+    legExtPR: prAnnotation(legExtData, 'Leg Ext'),
+    abdPR: prAnnotation(abdData, 'Abd'),
+    addPR: prAnnotation(addData, 'Add'),
+    sidePR: prAnnotation(sideData, 'Side'),
+    abMachinePR: prAnnotation(abMachineData, 'Ab Mach'),
+    calfPR: prAnnotation(calfData, 'Calf'),
   });
   pending.push(createChart('lowerMachineChart', 'line', [
     setsScatter('leg press', FADED.purple, GYM_START),
@@ -893,8 +919,8 @@ async function rebuildCharts(initial = false) {
   const rdlBBData = liftData('rdl barbell');
   const rdlDBData = liftData('rdl dumbbell');
   const lowerBBDBAnno = compactAnnotations({
-    rdlBBPR: prAnnotation(rdlBBData),
-    rdlDBPR: prAnnotation(rdlDBData),
+    rdlBBPR: prAnnotation(rdlBBData, 'RDL BB'),
+    rdlDBPR: prAnnotation(rdlDBData, 'RDL DB'),
   });
   pending.push(createChart('lowerBBDBChart', 'line', [
     setsScatter('rdl barbell', FADED.red),
@@ -963,8 +989,8 @@ async function rebuildCharts(initial = false) {
   });
   // Neck chart uses reps (y) for the y-axis, so rank PRs by reps not weight.
   const neckAnno = compactAnnotations({
-    neckExtPR: prAnnotation(neckExtData, 'PR', 'y'),
-    neckFlexPR: prAnnotation(neckFlexData, 'PR', 'y'),
+    neckExtPR: prAnnotation(neckExtData, 'Ext PR', 'y'),
+    neckFlexPR: prAnnotation(neckFlexData, 'Flex PR', 'y'),
   });
   const neckOpts = liftOpts('reps', neckAnno);
   neckOpts.plugins.tooltip.callbacks = {
