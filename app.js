@@ -374,6 +374,7 @@ async function init() {
   // Activate the target page BEFORE charts are created so their containers have
   // real dimensions — Chart.js with maintainAspectRatio:false can't size inside
   // a display:none parent, and resize() later won't always recover.
+  wireChartExpand();
   wirePageRouter();
 
   fetch('/api/version')
@@ -1194,28 +1195,111 @@ function setupAutoRefresh() {
   setInterval(() => { rebuildCharts(); }, 21600000);
 }
 
+const PAGES = ['body', 'running', 'lifts'];
+let _expandedCanvasId = null;
+
 function wirePageRouter() {
-  const pages = ['body', 'running', 'lifts'];
-  const navLinks = document.querySelectorAll('#pageNav a');
-  const activate = () => {
-    const hash = location.hash.slice(1);
-    const target = pages.includes(hash) ? hash : 'body';
-    for (const sec of document.querySelectorAll('.page')) {
-      sec.classList.toggle('active', sec.id === `page-${target}`);
-    }
-    for (const a of navLinks) {
-      const on = a.getAttribute('href') === `#${target}`;
-      a.classList.toggle('active', on);
-      if (on) a.setAttribute('aria-current', 'page');
-      else a.removeAttribute('aria-current');
-    }
-    // Chart.js charts that were hidden at init rendered at 0×0 — resize on activate.
-    for (const chart of allCharts) {
-      if (chart.canvas.closest('.page')?.id === `page-${target}`) chart.resize();
-    }
-  };
-  window.addEventListener('hashchange', activate);
-  activate();
+  window.addEventListener('hashchange', applyRoute);
+  applyRoute();
+}
+
+/** Show one of the three grid pages and sync nav highlight + a11y state. */
+function activatePage(target) {
+  const t = PAGES.includes(target) ? target : 'body';
+  for (const sec of document.querySelectorAll('.page')) {
+    sec.classList.toggle('active', sec.id === `page-${t}`);
+  }
+  for (const a of document.querySelectorAll('#pageNav a')) {
+    const on = a.getAttribute('href') === `#${t}`;
+    a.classList.toggle('active', on);
+    if (on) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  }
+  // Chart.js charts that were hidden at init rendered at 0×0 — resize on activate.
+  for (const chart of allCharts) {
+    if (chart.canvas.closest('.page')?.id === `page-${t}`) chart.resize();
+  }
+}
+
+/** Route off #hash: `#chart/<canvasId>` expands one chart full-page (deep-linkable,
+ *  back-button closes it); anything else is a normal page route. */
+function applyRoute() {
+  const m = location.hash.slice(1).match(/^chart\/(.+)$/);
+  const canvas = m && document.getElementById(m[1]);
+  if (canvas && canvas.closest('.chart-card')) {
+    activatePage(canvas.closest('.page')?.id.replace('page-', ''));
+    expandChart(m[1]);
+  } else {
+    collapseChart();
+    activatePage(location.hash.slice(1));
+  }
+}
+
+/** Blow one chart up to a full-page view. Reuses the existing chart instance —
+ *  the card just becomes position:fixed and the canvas CSS height grows, so we
+ *  resize() to let Chart.js redraw at the new size. Zoom/pan still work. */
+function expandChart(canvasId) {
+  if (_expandedCanvasId === canvasId) return;
+  collapseChart();
+  const canvas = document.getElementById(canvasId);
+  const card = canvas?.closest('.chart-card');
+  if (!card) return;
+  card.classList.add('expanded');
+  document.body.classList.add('has-expanded-chart');
+  _expandedCanvasId = canvasId;
+  const chart = Chart.getChart(canvas);
+  if (chart) requestAnimationFrame(() => chart.resize());
+  card.querySelector('.expand-close')?.focus();
+}
+
+function collapseChart() {
+  if (!_expandedCanvasId) return;
+  const canvas = document.getElementById(_expandedCanvasId);
+  const card = canvas?.closest('.chart-card');
+  card?.classList.remove('expanded');
+  document.body.classList.remove('has-expanded-chart');
+  const chart = canvas && Chart.getChart(canvas);
+  _expandedCanvasId = null;
+  if (chart) requestAnimationFrame(() => chart.resize());
+}
+
+/** Leave the expanded view by routing back to the chart's own page. */
+function closeExpanded() {
+  const canvas = _expandedCanvasId && document.getElementById(_expandedCanvasId);
+  const page = canvas?.closest('.page');
+  location.hash = page ? page.id.replace('page-', '') : '';
+}
+
+/** Inject an expand (⤢) and close (✕) control into each chart card, once.
+ *  A dedicated control rather than click-the-chart: a single canvas click would
+ *  collide with the double-click-to-reset-zoom (dblclick fires click first). */
+function wireChartExpand() {
+  for (const card of document.querySelectorAll('.chart-card')) {
+    const canvas = card.querySelector('canvas');
+    if (!canvas || !canvas.id || card.querySelector('.expand-btn')) continue;
+    const title = card.querySelector('h2')?.textContent || 'chart';
+    const expand = document.createElement('button');
+    expand.type = 'button';
+    expand.className = 'expand-btn';
+    expand.title = 'Expand';
+    expand.setAttribute('aria-label', `Expand ${title}`);
+    expand.textContent = '⤢';
+    expand.addEventListener('click', () => { location.hash = `chart/${canvas.id}`; });
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'expand-close';
+    close.title = 'Close (Esc)';
+    close.setAttribute('aria-label', `Close expanded ${title}`);
+    close.textContent = '✕';
+    close.addEventListener('click', closeExpanded);
+    card.append(expand, close);
+  }
+  if (!wireChartExpand._escBound) {
+    wireChartExpand._escBound = true;
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && _expandedCanvasId) closeExpanded();
+    });
+  }
 }
 
 function wireRangePresets() {
