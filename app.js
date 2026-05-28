@@ -258,7 +258,9 @@ function linearTrendline(points) {
   const sumY = ys.reduce((a, b) => a + b, 0);
   const sumXY = xs.reduce((a, x, i) => a + x * ys[i], 0);
   const sumX2 = xs.reduce((a, x) => a + x * x, 0);
-  const slope = (n * sumXY - sumX * sumY) / (n * sumX2 - sumX * sumX);
+  const denom = n * sumX2 - sumX * sumX;
+  if (denom === 0) return [];  // every point shares one x → no slope (avoid NaN)
+  const slope = (n * sumXY - sumX * sumY) / denom;
   const intercept = (sumY - slope * sumX) / n;
   const first = xs[0];
   const last = xs[xs.length - 1];

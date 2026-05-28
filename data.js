@@ -53,7 +53,7 @@ function processWeight(rows) {
 
 // --- Body Fat ---
 function processBodyFat(bodyfat, measurements, dexa) {
-  // Navy BF% from measurements (neck + stomach/abdomen at navel, height = 71.75 inches)
+  // Navy BF% from measurements (neck + stomach = abdomen at navel, height = 72 inches)
   const HEIGHT_IN = 72;
   const navy = measurements
     .filter(m => m.neck && m.stomach)
@@ -147,13 +147,4 @@ function processWorkoutSets(rows) {
     byExercise[r.exercise].push({ week: r.week, weight: r.weight, reps: r.reps });
   }
   return byExercise;
-}
-
-// --- Utilities ---
-function movingAverage(values, window) {
-  return values.map((_, i) => {
-    const start = Math.max(0, i - window + 1);
-    const slice = values.slice(start, i + 1);
-    return Math.round((slice.reduce((a, b) => a + b, 0) / slice.length) * 10) / 10;
-  });
 }
