@@ -36,24 +36,25 @@ CONTENT_TYPES = {
     ".svg": "image/svg+xml",
 }
 
-# Thread-local SQLite connections: one connection per (db_path, thread), reused
-# for the life of the thread. ThreadingHTTPServer spawns a thread per request
-# and worker threads are short-lived, so this puts a natural cap on connection
-# count without needing a pool.
-_local = threading.local()
-
+# Only these static file types are publicly served. The web root is the repo
+# dir, which also holds source (.py), docs (.md), the systemd unit, logs/,
+# .git/, .playwright-mcp/ and stray files like *.ics — none of which should be
+# reachable, since the server is exposed on the public internet with no auth.
+ALLOWED_STATIC_EXTS = {".html", ".css", ".js", ".svg", ".png", ".ico", ".webmanifest"}
 
 def query_db(db_path, sql, params=()):
-    conns = getattr(_local, "conns", None)
-    if conns is None:
-        conns = {}
-        _local.conns = conns
-    conn = conns.get(db_path)
-    if conn is None:
-        conn = sqlite3.connect(db_path)
+    # Open and close a connection per request. The server runs HTTP/1.0 (a new
+    # thread per request), so the old thread-local cache never actually reused a
+    # connection — and never closed one either, so fds to the DB climbed until
+    # cyclic GC reclaimed them. SQLite opens are cheap, so per-request open is
+    # simpler and leak-free. (Kept read/write rather than mode=ro: garmin.db is
+    # WAL and a read-only open can fail to build the -wal index.)
+    conn = sqlite3.connect(db_path)
+    try:
         conn.row_factory = sqlite3.Row
-        conns[db_path] = conn
-    return [dict(r) for r in conn.execute(sql, params).fetchall()]
+        return [dict(r) for r in conn.execute(sql, params).fetchall()]
+    finally:
+        conn.close()
 
 
 def api_weight():
@@ -215,17 +216,19 @@ def api_schema():
     """SQLite tables in garmin.db + their column lists. Used by
     architecture.html to render the storage-layer chip list live."""
     conn = sqlite3.connect(GARMIN_DB)
-    conn.row_factory = sqlite3.Row
-    tables = [r["name"] for r in conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' "
-        "AND name NOT LIKE 'sqlite_%' ORDER BY name"
-    )]
-    result = []
-    for t in tables:
-        cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({t})")]
-        result.append({"table": t, "columns": cols})
-    conn.close()
-    return result
+    try:
+        conn.row_factory = sqlite3.Row
+        tables = [r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        )]
+        result = []
+        for t in tables:
+            cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({t})")]
+            result.append({"table": t, "columns": cols})
+        return result
+    finally:
+        conn.close()
 
 
 def api_cron():
@@ -279,6 +282,9 @@ API_ROUTES = {
 
 
 class Handler(SimpleHTTPRequestHandler):
+    server_version = "health-dashboard"  # hide "SimpleHTTP/x Python/y" banner
+    sys_version = ""
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=STATIC_DIR, **kwargs)
 
@@ -290,12 +296,49 @@ class Handler(SimpleHTTPRequestHandler):
                 data = API_ROUTES[path]()
                 body = json.dumps(data).encode()
                 self._send_json(200, body)
-            except Exception as e:
+            except Exception:
+                # Full detail goes to the log only; the public response stays
+                # generic so exception text (paths, SQL/schema hints) isn't leaked.
                 logger.exception("API handler %s failed", path)
-                self._send_json(500, json.dumps({"error": str(e)}).encode())
+                self._send_json(500, json.dumps({"error": "internal error"}).encode())
+            return
+
+        if self._is_private_path():
+            self.send_error(404, "File not found")
             return
 
         super().do_GET()
+
+    def _is_private_path(self):
+        """True for any static path that must not be public.
+
+        The web root is the repo dir, which also contains source, logs/, .git/
+        and other non-public files, and the server is reachable on the public
+        internet with no auth. Resolve to a real filesystem path (this also
+        neutralizes ../ traversal) and only allow files that live inside the
+        repo, carry an allow-listed extension, and have no dot-prefixed or
+        logs/ path segment. Directories never list.
+        """
+        root = os.path.realpath(STATIC_DIR)
+        real = os.path.realpath(self.translate_path(self.path))
+        if real != root and not real.startswith(root + os.sep):
+            return True  # escaped the web root
+        rel = os.path.relpath(real, root)
+        if rel == ".":
+            return False  # "/" maps to index.html
+        segments = rel.split(os.sep)
+        if any(seg.startswith(".") for seg in segments):
+            return True  # .git, .gitignore, .playwright-mcp, …
+        if segments[0] == "logs":
+            return True  # request log, status_line.json, debug images
+        if os.path.isdir(real):
+            return True  # no directory autoindex
+        return os.path.splitext(real)[1].lower() not in ALLOWED_STATIC_EXTS
+
+    def list_directory(self, path):
+        # Belt-and-suspenders: never enumerate a directory even if reached.
+        self.send_error(404, "File not found")
+        return None
 
     def _send_json(self, status, body):
         """Send a JSON response, gzip-compressing when the client accepts it.
@@ -322,6 +365,7 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "*")
+        self.send_header("X-Content-Type-Options", "nosniff")
         # Caching policy:
         #   /api/*           → no-store (data must be fresh)
         #   *.html, *.js, /  → no-store (entry points + JS modules — let
