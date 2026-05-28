@@ -389,15 +389,20 @@ async function init() {
 }
 
 let _lastRefresh = Date.now();
+let _refreshing = false;
+// Canvases that already have a dblclick→resetZoom listener. Canvases persist
+// across rebuilds, so without this we'd stack a new listener every refresh —
+// and each stale closure would pin a now-destroyed Chart instance (a leak).
+const _dblclickBound = new WeakSet();
 
 async function rebuildCharts(initial = false) {
-  // Tear down existing charts so we can rebuild against fresh data.
-  // This preserves DOM state (scroll position, active page tab, range button,
-  // version chip) that a full `location.reload()` would discard.
-  // Tradeoff: per-chart zoom/pan state is reset — fixing that would require
-  // an in-place dataset update that the current inline mappers can't support.
-  for (const c of allCharts) c.destroy();
-  allCharts.length = 0;
+  // Guard against overlapping rebuilds — the 6h interval can coincide with a
+  // visibilitychange, and two concurrent runs would each call new Chart() on a
+  // canvas the other still holds → "Canvas already in use", corrupting state.
+  // Released in the populate frame below (and on load failure), once the new
+  // charts are live and tracked in allCharts.
+  if (_refreshing) return;
+  _refreshing = true;
 
   let data;
   try {
@@ -411,9 +416,17 @@ async function rebuildCharts(initial = false) {
         card.insertAdjacentHTML('beforeend', '<p style="color:#ff6b6b;text-align:center;margin-top:2rem">Failed to load data</p>');
       });
     }
+    _refreshing = false;
     return;
   }
   _lastRefresh = Date.now();
+
+  // Tear down existing charts only AFTER a successful load, so a failed refresh
+  // leaves the current charts on screen instead of blanking them. Preserves DOM
+  // state (scroll, active tab, range button, version chip) a full reload would
+  // discard. Tradeoff: per-chart zoom/pan state resets.
+  for (const c of allCharts) c.destroy();
+  allCharts.length = 0;
   const pending = [];
 
   // Event annotations: DEXA scan dates auto-seed body charts; EVENTS array adds user events per scope.
@@ -1105,17 +1118,27 @@ async function rebuildCharts(initial = false) {
 
   // Populate all charts simultaneously so animations start in sync
   requestAnimationFrame(() => {
-    for (const entry of pending) {
-      if (!entry) continue;
-      entry.chart.data.datasets = entry.datasets;
-      entry.chart.options.animation = initial ? ANIMATION : false;
-      entry.chart.update();
-      entry.chart.canvas.closest('.chart-card')?.classList.remove('loading');
-      allCharts.push(entry.chart);
-      // Double-click to reset zoom
-      entry.chart.canvas.addEventListener('dblclick', () => entry.chart.resetZoom());
+    try {
+      for (const entry of pending) {
+        if (!entry) continue;
+        entry.chart.data.datasets = entry.datasets;
+        entry.chart.options.animation = initial ? ANIMATION : false;
+        entry.chart.update();
+        entry.chart.canvas.closest('.chart-card')?.classList.remove('loading');
+        allCharts.push(entry.chart);
+        // Double-click resets zoom. Bind once per canvas (canvases outlive the
+        // charts across rebuilds) and look up the live chart at click time, so
+        // we neither stack listeners nor capture a destroyed instance.
+        const canvas = entry.chart.canvas;
+        if (!_dblclickBound.has(canvas)) {
+          _dblclickBound.add(canvas);
+          canvas.addEventListener('dblclick', () => Chart.getChart(canvas)?.resetZoom());
+        }
+      }
+      applyChartMetadata(data);
+    } finally {
+      _refreshing = false;
     }
-    applyChartMetadata(data);
   });
 }
 
@@ -1181,7 +1204,10 @@ function wirePageRouter() {
       sec.classList.toggle('active', sec.id === `page-${target}`);
     }
     for (const a of navLinks) {
-      a.classList.toggle('active', a.getAttribute('href') === `#${target}`);
+      const on = a.getAttribute('href') === `#${target}`;
+      a.classList.toggle('active', on);
+      if (on) a.setAttribute('aria-current', 'page');
+      else a.removeAttribute('aria-current');
     }
     // Chart.js charts that were hidden at init rendered at 0×0 — resize on activate.
     for (const chart of allCharts) {
@@ -1197,7 +1223,9 @@ function wireRangePresets() {
   if (!container) return;
   // Sync button highlight with the (possibly localStorage-restored) currentRange
   for (const b of container.querySelectorAll('button')) {
-    b.classList.toggle('active', b.dataset.range === currentRange);
+    const on = b.dataset.range === currentRange;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
   }
   updateRangeCaption();
   container.addEventListener('click', (e) => {
@@ -1206,7 +1234,11 @@ function wireRangePresets() {
     currentRange = btn.dataset.range;
     currentMin = rangeMin(currentRange);
     try { localStorage.setItem('range', currentRange); } catch {}
-    for (const b of container.querySelectorAll('button')) b.classList.toggle('active', b === btn);
+    for (const b of container.querySelectorAll('button')) {
+      const on = b === btn;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    }
     for (const chart of allCharts) {
       // resetZoom reverts scale options to construction values — reset first, then apply new min
       chart.resetZoom('none');
