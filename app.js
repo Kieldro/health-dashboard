@@ -1278,6 +1278,10 @@ function wireChartExpand() {
     const canvas = card.querySelector('canvas');
     if (!canvas || !canvas.id || card.querySelector('.expand-btn')) continue;
     const title = card.querySelector('h2')?.textContent || 'chart';
+    // Give the chart canvas an accessible name (WCAG 1.1.1) — Chart.js renders
+    // to a bare <canvas> with no text alternative otherwise.
+    canvas.setAttribute('role', 'img');
+    canvas.setAttribute('aria-label', `${title} chart`);
     const expand = document.createElement('button');
     expand.type = 'button';
     expand.className = 'expand-btn';
