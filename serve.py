@@ -394,6 +394,9 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    # Bind loopback only: cloudflared proxies health.keo.life -> http://localhost:8888
+    # on this host, so the public tunnel still works while the LAN can no longer
+    # reach the dashboard directly (bypassing Cloudflare's TLS/WAF).
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
     print(f"Serving health dashboard at http://localhost:{PORT}")
     server.serve_forever()
