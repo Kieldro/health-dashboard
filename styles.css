@@ -203,6 +203,64 @@ canvas {
   animation: skeleton-pulse 1.8s ease-in-out infinite;
 }
 
+/* Chart expand / collapse controls (top-right of each card) */
+.expand-btn,
+.expand-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.7rem;
+  width: 1.9rem;
+  height: 1.9rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.expand-btn:hover,
+.expand-close:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.expand-btn:focus-visible,
+.expand-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.chart-card.loading .expand-btn { display: none; }
+.expand-close { display: none; }
+
+/* Full-page expanded chart */
+.chart-card.expanded {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--bg);
+  padding: 1.25rem 1.5rem;
+  overflow: hidden;
+}
+.chart-card.expanded .expand-btn { display: none; }
+.chart-card.expanded .expand-close {
+  display: flex;
+  top: 1rem;
+  right: 1.25rem;
+}
+.chart-card.expanded canvas {
+  height: calc(100vh - 6rem) !important;
+}
+/* keep the right-aligned "updated" meta clear of the ✕ close button */
+.chart-card.expanded .chart-meta { padding-right: 3.5rem; }
+body.has-expanded-chart { overflow: hidden; }
+
 @media (max-width: 520px) {
   .chart-grid {
     grid-template-columns: 1fr;
