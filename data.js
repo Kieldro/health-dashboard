@@ -107,11 +107,15 @@ function processRuns(activities) {
 function getWeeklyMileage(runs) {
   const byWeek = new Map();
   for (const r of runs) {
+    // r.date is "YYYY-MM-DD", which Date parses as UTC midnight, and weekKey
+    // below is derived via toISOString() (UTC) — so the Monday-of-week math
+    // must use UTC accessors too. Local ones civil-shift the instant back a day
+    // in western timezones, bucketing Monday's runs into the previous week.
     const d = new Date(r.date);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const day = d.getUTCDay();
+    const diff = d.getUTCDate() - day + (day === 0 ? -6 : 1);
     const monday = new Date(d);
-    monday.setDate(diff);
+    monday.setUTCDate(diff);
     const weekKey = monday.toISOString().split('T')[0];
     byWeek.set(weekKey, (byWeek.get(weekKey) || 0) + r.distMi);
   }
