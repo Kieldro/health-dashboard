@@ -288,4 +288,11 @@ body.has-expanded-chart { overflow: hidden; }
   .chart-card {
     padding: 0.75rem;
   }
+  /* match the skeleton overlay to the smaller mobile padding */
+  .chart-card.loading::after {
+    top: 2.25rem;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: 0.75rem;
+  }
 }

@@ -107,6 +107,7 @@
     .node.purple { border-left-color: var(--purple); }
     .node.orange { border-left-color: var(--orange); }
     .node.cyan   { border-left-color: var(--cyan); }
+    .node.accent { border-left-color: var(--accent); }
 
     .node.cluster {
       background: var(--card-bg-2);
@@ -185,7 +186,7 @@
     /* ── Schedule timeline ─────────────────────────────────── */
     .timeline {
       display: grid;
-      grid-template-columns: repeat(8, minmax(0, 1fr));
+      grid-template-columns: repeat(9, minmax(0, 1fr));
       gap: 0.5rem;
       margin-top: 0.5rem;
     }
@@ -332,7 +333,7 @@
       <div class="col-title">4 · Server</div>
       <div class="col-subtitle">localhost:8888 · systemd</div>
       <div class="col">
-        <div class="node accent" style="border-left-color: var(--accent)">
+        <div class="node accent">
           <div class="node-name">serve.py</div>
           <div class="node-desc">Python stdlib HTTP · single-threaded · stateless</div>
         </div>
