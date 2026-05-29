@@ -544,9 +544,19 @@ async function rebuildCharts(initial = false) {
     opts.plugins.zoom.zoom.mode = 'x';
     opts.plugins.zoom.pan.mode = 'x';
     mergeAnnotations(opts, bodyEventAnno);
+    mergeAnnotations(opts, {
+      whrGoal: {
+        type: 'line', yMin: 0.9, yMax: 0.9, yScaleID: 'y1',
+        borderColor: COLORS.cyan, borderWidth: 1.5, borderDash: [6, 4],
+        label: { display: true, content: 'W:H goal 0.90', position: 'start',
+                 backgroundColor: 'transparent', color: COLORS.cyan, font: { size: 9 } },
+      },
+    });
+    // WHR numerator = navel-level circumference (the `stomach` field — the
+    // standard/WHO "waist" for waist-to-hip ratio), not the iliac-crest `waist`.
     const whr = data.bodyMeasurements
-      .filter(d => d.waist != null && d.hips)
-      .map(d => ({ x: d.date, y: Math.round((d.waist / d.hips) * 1000) / 1000 }));
+      .filter(d => d.stomach != null && d.hips)
+      .map(d => ({ x: d.date, y: Math.round((d.stomach / d.hips) * 1000) / 1000 }));
     pending.push(createChart('measurementsChart', 'line', [
       {
         label: 'Stomach',
