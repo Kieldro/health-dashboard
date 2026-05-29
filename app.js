@@ -27,8 +27,11 @@ const GOALS = {
 // User-maintained event log — annotations get drawn on charts in matching scope.
 // Edit this array to add race days, diet changes, injuries, etc.
 const EVENTS = [
-  // Example (commented out — uncomment after confirming with Ian):
-  // { date: '2026-04-19', label: 'Spring 5K', scope: 'running' },
+  // Personal events → dashed vertical line on matching charts.
+  // scope: 'body' | 'running' | 'lifts' | 'all'. Uncomment / edit with real dates:
+  // { date: '2026-04-19', label: 'Spring 5K',  scope: 'running' },
+  // { date: '2026-01-01', label: 'New gym',    scope: 'lifts' },
+  // { date: '2026-03-15', label: 'Cut start',  scope: 'body' },
 ];
 
 const GRID_COLOR = 'rgba(255,255,255,0.06)';
@@ -396,6 +399,10 @@ async function init() {
   // Activate the target page BEFORE charts are created so their containers have
   // real dimensions — Chart.js with maintainAspectRatio:false can't size inside
   // a display:none parent, and resize() later won't always recover.
+  // Resume the last-viewed page when opening the bare URL (Overview by default).
+  if (!location.hash) {
+    try { const p = localStorage.getItem('lastPage'); if (p) location.hash = p; } catch {}
+  }
   wireChartExpand();
   wirePageRouter();
 
@@ -1305,6 +1312,7 @@ function wirePageRouter() {
 /** Show one of the three grid pages and sync nav highlight + a11y state. */
 function activatePage(target) {
   const t = PAGES.includes(target) ? target : 'overview';
+  try { localStorage.setItem('lastPage', t); } catch {}
   for (const sec of document.querySelectorAll('.page')) {
     sec.classList.toggle('active', sec.id === `page-${t}`);
   }
