@@ -10,6 +10,7 @@ import subprocess
 import threading
 from datetime import datetime, timedelta
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from logging.handlers import RotatingFileHandler
 
 PORT = 8888
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -21,7 +22,8 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     handlers=[
-        logging.FileHandler(os.path.join(LOGS_DIR, "dashboard.log")),
+        RotatingFileHandler(os.path.join(LOGS_DIR, "dashboard.log"),
+                            maxBytes=5_000_000, backupCount=3),
         logging.StreamHandler(),
     ],
 )
@@ -256,7 +258,8 @@ def api_cron():
         rest = " ".join(parts[5:])
         # Extract a friendly name (last py/sh filename)
         name = next((tok.rsplit("/", 1)[-1] for tok in parts if tok.endswith((".py", ".sh"))), "?")
-        jobs.append({"time": f"{int(h):02d}:{int(m):02d}", "name": name})
+        hhmm = f"{int(h):02d}:{int(m):02d}" if h.isdigit() and m.isdigit() else f"{h}:{m}"
+        jobs.append({"time": hhmm, "name": name})
     return sorted(jobs, key=lambda j: j["time"])
 
 
@@ -346,19 +349,16 @@ class Handler(SimpleHTTPRequestHandler):
         Saves 5-10x on payload size for JSON over the Cloudflare tunnel; the
         decompress cost on a modern browser is negligible.
         """
-        encoding = self.headers.get("Accept-Encoding", "")
-        if "gzip" in encoding and len(body) > 512:
+        gzipped = "gzip" in self.headers.get("Accept-Encoding", "") and len(body) > 512
+        if gzipped:
             body = gzip.compress(body, compresslevel=5)
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        if gzipped:
             self.send_header("Content-Encoding", "gzip")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-        else:
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
+            self.send_header("Vary", "Accept-Encoding")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
         self.wfile.write(body)
 
     def end_headers(self):
@@ -367,13 +367,15 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Headers", "*")
         self.send_header("X-Content-Type-Options", "nosniff")
         # Caching policy:
-        #   /api/*           → no-store (data must be fresh)
-        #   *.html, *.js, /  → no-store (entry points + JS modules — let
-        #                      code changes propagate without browser cache
-        #                      games; payloads are tiny anyway)
-        #   *.css, images    → max-age=3600 (rarely change, save tunnel bw)
+        #   /api/*                 → no-store (data must be fresh)
+        #   *.html, *.js, *.css, / → no-store (entry points + code — let changes
+        #                            propagate without browser cache games so a
+        #                            deploy never serves new JS against stale CSS;
+        #                            payloads are tiny anyway)
+        #   images                 → max-age=3600 (rarely change, save tunnel bw)
         path = self.path.split("?", 1)[0]
-        if path.startswith("/api/") or path.endswith(".html") or path.endswith(".js") or path == "/":
+        if (path.startswith("/api/") or path.endswith(".html")
+                or path.endswith(".js") or path.endswith(".css") or path == "/"):
             self.send_header("Cache-Control", "no-store")
         else:
             self.send_header("Cache-Control", "public, max-age=3600")
