@@ -167,7 +167,8 @@ main {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 0.5rem;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
   font-size: 0.7rem;
   color: var(--text-muted);
   margin: 0.1rem 0 0.6rem;
@@ -176,6 +177,11 @@ main {
 
 .chart-latest { color: var(--text); }
 .chart-updated { color: var(--text-muted); }
+.chart-goal { color: var(--text-muted); }
+.chart-updated.stale-amber { color: #ffd43b; }
+.chart-updated.stale-red { color: #ff6b6b; }
+.chart-updated.stale-amber::before,
+.chart-updated.stale-red::before { content: '● '; }
 
 .range-caption {
   text-align: center;

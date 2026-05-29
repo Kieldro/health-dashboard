@@ -137,7 +137,7 @@ function relativeAgo(dateStr) {
   return `${Math.floor(days/30)}mo ago`;
 }
 
-function setChartMeta(canvasId, latest, lastDate) {
+function setChartMeta(canvasId, latest, lastDate, goalNote) {
   const canvas = document.getElementById(canvasId);
   const card = canvas?.closest('.chart-card');
   if (!card) return;
@@ -148,9 +148,14 @@ function setChartMeta(canvasId, latest, lastDate) {
     card.querySelector('h2')?.after(meta);
   }
   const ago = relativeAgo(lastDate);
+  // Staleness: flag metrics that haven't updated within their expected cadence
+  // (catches a silently-broken sync — e.g. hr-recovery that's weeks behind).
+  const days = lastDate ? Math.floor((Date.now() - new Date(lastDate).getTime()) / 86400000) : -1;
+  const stale = days > 21 ? ' stale-red' : days > 7 ? ' stale-amber' : '';
   meta.innerHTML =
     (latest ? `<span class="chart-latest">${latest}</span>` : '') +
-    (ago ? `<span class="chart-updated">${ago}</span>` : '');
+    (goalNote ? `<span class="chart-goal">${goalNote}</span>` : '') +
+    (ago ? `<span class="chart-updated${stale}" title="updated ${ago}">${ago}</span>` : '');
 }
 
 function updateRangeCaption() {
@@ -1162,24 +1167,37 @@ async function rebuildCharts(initial = false) {
 function applyChartMetadata(data) {
   const arrow = (delta) => delta > 0 ? '▲' : delta < 0 ? '▼' : '→';
   const signed = (v, d = 1) => `${arrow(v)}${Math.abs(v).toFixed(d)}`;
+  // "X to goal" given direction. lowerIsBetter: goal sits below current (weight,
+  // BF, RHR); otherwise above (HRV, VO2, HR-recovery).
+  const goalTag = (latest, goal, { unit = '', decimals = 1, lowerIsBetter = false } = {}) => {
+    if (goal == null || latest == null) return '';
+    const gap = lowerIsBetter ? latest - goal : goal - latest;
+    if (gap <= 0) return '✓ at goal';
+    return `${gap.toFixed(decimals)}${unit ? ' ' + unit : ''} to goal`;
+  };
 
   const w = data.weight?.at(-1);
   if (w) {
     const vs30 = w.ma30 != null ? ` · ${signed(w.weight - w.ma30)} vs 30d` : '';
-    setChartMeta('weightChart', `${w.weight.toFixed(1)} lb${vs30}`, w.date);
+    setChartMeta('weightChart', `${w.weight.toFixed(1)} lb${vs30}`, w.date,
+      goalTag(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }));
   }
 
   const bf = data.bodyFat?.renpho?.at(-1);
-  if (bf) setChartMeta('bodyFatChart', `${bf.renpho}%`, bf.date);
+  if (bf) setChartMeta('bodyFatChart', `${bf.renpho}%`, bf.date,
+    goalTag(bf.renpho, GOALS.bodyFatPct, { unit: '%', lowerIsBetter: true }));
 
   const rhr = data.rhr?.at(-1);
-  if (rhr) setChartMeta('rhrChart', `${rhr.rhr} bpm`, rhr.date);
+  if (rhr) setChartMeta('rhrChart', `${rhr.rhr} bpm`, rhr.date,
+    goalTag(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }));
 
   const hrv = data.hrv?.at(-1);
-  if (hrv) setChartMeta('hrvChart', `${hrv.hrv} ms`, hrv.date);
+  if (hrv) setChartMeta('hrvChart', `${hrv.hrv} ms`, hrv.date,
+    goalTag(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }));
 
   const vo2 = data.vo2max?.at(-1);
-  if (vo2) setChartMeta('vo2maxChart', `${vo2.vo2max}`, vo2.date);
+  if (vo2) setChartMeta('vo2maxChart', `${vo2.vo2max}`, vo2.date,
+    goalTag(vo2.vo2max, GOALS.vo2max, { decimals: 1 }));
 
   const lastRun = data.runs?.all?.at(-1);
   if (lastRun) setChartMeta('efChart', `${lastRun.distMi.toFixed(1)}mi · ${lastRun.avgHR}bpm`, lastRun.date);
@@ -1192,7 +1210,8 @@ function applyChartMetadata(data) {
 
   const recoveryRows = data.hrRecovery || [];
   const recLast = recoveryRows.at(-1);
-  if (recLast) setChartMeta('hrRecoveryChart', `${recLast.recovery} bpm drop`, recLast.date);
+  if (recLast) setChartMeta('hrRecoveryChart', `${recLast.recovery} bpm drop`, recLast.date,
+    goalTag(recLast.recovery, GOALS.hrRecovery60Bpm, { unit: 'bpm', decimals: 0 }));
 
   const volLast = data.workoutVolume?.at(-1);
   if (volLast) setChartMeta('volumeChart', `${volLast.total_sets} sets · ${volLast.training_days} days`, volLast.week);
