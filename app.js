@@ -814,6 +814,39 @@ async function rebuildCharts(initial = false) {
     ], opts));
   })();
 
+  // 10d. Training Log — every run as a bubble (x=date, y=pace, size=distance, color=HR zone)
+  (() => {
+    const opts = baseOptions({ showLegend: false, yLabel: 'min/mi' });
+    opts.interaction = { mode: 'nearest', intersect: true };
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx) => {
+        const p = ctx.raw;
+        return `${p.x}: ${p.dist.toFixed(1)} mi · ${fmtPace(p.y)} · ${p.hr} bpm`;
+      },
+    };
+    mergeAnnotations(opts, runningEventAnno);
+    const HRMAX_BPM = 200;  // matches serve.py HR-zone bins
+    const ZONE_C = ['#74c0fc', '#51cf66', '#ffd43b', '#ff922b', '#ff6b6b']; // Z1→Z5
+    const zoneIdx = (hr) => {
+      const pct = (hr || 0) / HRMAX_BPM;
+      return pct < 0.6 ? 0 : pct < 0.7 ? 1 : pct < 0.8 ? 2 : pct < 0.9 ? 3 : 4;
+    };
+    const runs = data.runs.all.filter(r => r.distMi > 0 && r.paceMinMi > 0);
+    const points = runs.map(r => ({
+      x: r.date, y: r.paceMinMi, dist: r.distMi, hr: r.avgHR,
+      r: Math.max(3, Math.min(20, 3 + Math.sqrt(r.distMi) * 3)),  // area ∝ distance
+    }));
+    pending.push(createChart('trainingLogChart', 'bubble', [
+      {
+        label: 'Runs',
+        data: points,
+        backgroundColor: runs.map(r => ZONE_C[zoneIdx(r.avgHR)]),
+        borderColor: 'rgba(255,255,255,0.18)',
+        borderWidth: 1,
+      },
+    ], opts));
+  })();
+
   // 11. Weekly Training Volume
   (() => {
     const opts = baseOptions({ timeUnit: 'week', yLabel: 'sets' });
