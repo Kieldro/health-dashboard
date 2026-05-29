@@ -522,11 +522,24 @@ async function rebuildCharts(initial = false) {
     ], opts));
   })();
 
-  // 3. Measurements (stomach, waist & neck)
+  // 3. Measurements (stomach, waist, chest, hips, neck + waist-to-hip ratio on right axis)
   (() => {
     const opts = baseOptions({ showLegend: true, yLabel: 'inches' });
     opts.interaction = { mode: 'nearest', intersect: false };
+    // W:H ratio is unitless (~0.8–0.95) — on a right axis so it doesn't flatten
+    // against the inch-scale lines. Dual axis → x-only zoom (y-zoom ambiguous).
+    opts.scales.y1 = {
+      position: 'right',
+      grid: { drawOnChartArea: false },
+      ticks: { color: COLORS.cyan },
+      title: { display: true, text: 'W:H ratio', color: COLORS.cyan },
+    };
+    opts.plugins.zoom.zoom.mode = 'x';
+    opts.plugins.zoom.pan.mode = 'x';
     mergeAnnotations(opts, bodyEventAnno);
+    const whr = data.bodyMeasurements
+      .filter(d => d.waist != null && d.hips)
+      .map(d => ({ x: d.date, y: Math.round((d.waist / d.hips) * 1000) / 1000 }));
     pending.push(createChart('measurementsChart', 'line', [
       {
         label: 'Stomach',
@@ -539,9 +552,26 @@ async function rebuildCharts(initial = false) {
         ...lineDefaults(COLORS.yellow),
       },
       {
+        label: 'Chest',
+        data: data.bodyMeasurements.filter(d => d.chest != null).map(d => ({ x: d.date, y: d.chest })),
+        ...lineDefaults(COLORS.red),
+      },
+      {
+        label: 'Hips',
+        data: data.bodyMeasurements.filter(d => d.hips != null).map(d => ({ x: d.date, y: d.hips })),
+        ...lineDefaults(COLORS.orange),
+      },
+      {
         label: 'Neck',
         data: data.bodyMeasurements.filter(d => d.neck != null).map(d => ({ x: d.date, y: d.neck })),
         ...lineDefaults(COLORS.green),
+      },
+      {
+        label: 'W:H ratio',
+        data: whr,
+        ...lineDefaults(COLORS.cyan),
+        yAxisID: 'y1',
+        borderDash: [5, 3],
       },
     ], opts));
   })();

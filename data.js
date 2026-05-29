@@ -71,7 +71,7 @@ function processBodyFat(bodyfat, measurements, dexa) {
 
 // --- Body Measurements ---
 function processMeasurements(measurements) {
-  return measurements.filter(m => m.stomach || m.waist || m.neck || m.right_bicep || m.right_forearm || m.right_quad || m.right_calf);
+  return measurements.filter(m => m.stomach || m.waist || m.neck || m.chest || m.hips || m.right_bicep || m.right_forearm || m.right_quad || m.right_calf);
 }
 
 // --- Running ---
