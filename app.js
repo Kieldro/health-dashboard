@@ -370,7 +370,22 @@ const Crosshair = {
     ctx.restore();
   },
 };
-Chart.register(Crosshair);
+/** Replace any still-loading chart cards with an error line — used when the
+ *  Chart.js CDN fails (or SRI blocks it), the data load fails, or it hangs, so
+ *  cards show a message instead of pulsing their skeleton forever. */
+function showCardError(msg) {
+  document.querySelectorAll('.chart-card.loading').forEach(card => {
+    card.classList.remove('loading');
+    const canvas = card.querySelector('canvas');
+    if (canvas) canvas.style.display = 'none';
+    if (!card.querySelector('.card-error')) {
+      const p = document.createElement('p');
+      p.className = 'card-error';
+      p.textContent = msg;
+      card.appendChild(p);
+    }
+  });
+}
 
 async function init() {
   // Activate the target page BEFORE charts are created so their containers have
@@ -386,7 +401,11 @@ async function init() {
     })
     .catch(() => {});
 
+  // Don't pulse skeletons forever if the data load stalls (e.g. a hung fetch).
+  const stuckTimer = setTimeout(
+    () => showCardError('Still loading… check your connection and refresh.'), 15000);
   await rebuildCharts(/*initial=*/true);
+  clearTimeout(stuckTimer);
   wireRangePresets();
   setupAutoRefresh();
 }
@@ -412,13 +431,7 @@ async function rebuildCharts(initial = false) {
     data = await loadAllData();
   } catch (e) {
     console.error('Failed to load data:', e);
-    if (initial) {
-      document.querySelectorAll('.chart-card.loading').forEach(card => {
-        card.classList.remove('loading');
-        card.querySelector('canvas').style.display = 'none';
-        card.insertAdjacentHTML('beforeend', '<p style="color:#ff6b6b;text-align:center;margin-top:2rem">Failed to load data</p>');
-      });
-    }
+    if (initial) showCardError('Failed to load data.');
     _refreshing = false;
     return;
   }
@@ -1340,4 +1353,11 @@ function wireRangePresets() {
   });
 }
 
-init();
+if (typeof Chart === 'undefined') {
+  // Chart.js failed to load (CDN unreachable or SRI mismatch) — show an error
+  // instead of leaving every card pulsing its skeleton forever.
+  showCardError('Charts failed to load — check your connection and refresh.');
+} else {
+  Chart.register(Crosshair);
+  init();
+}

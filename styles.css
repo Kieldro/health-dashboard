@@ -213,6 +213,13 @@ canvas {
   animation: skeleton-pulse 1.8s ease-in-out infinite;
 }
 
+.card-error {
+  color: #ff6b6b;
+  text-align: center;
+  padding: 2rem 1rem;
+  font-size: 0.85rem;
+}
+
 /* Chart expand / collapse controls (top-right of each card) */
 .expand-btn,
 .expand-close {
