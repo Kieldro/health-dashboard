@@ -1187,6 +1187,7 @@ async function rebuildCharts(initial = false) {
         }
       }
       applyChartMetadata(data);
+      renderOverview(data);
     } finally {
       _refreshing = false;
     }
@@ -1247,6 +1248,40 @@ function applyChartMetadata(data) {
   if (volLast) setChartMeta('volumeChart', `${volLast.total_sets} sets · ${volLast.training_days} days`, volLast.week);
 }
 
+/** Render the Overview page: at-a-glance KPI cards (latest value + goal gap)
+ *  so you don't have to scan every chart to know where you stand today. */
+function renderOverview(data) {
+  const grid = document.getElementById('overviewGrid');
+  if (!grid) return;
+  const cards = [];
+  const add = (label, value, sub) => cards.push(
+    `<div class="kpi"><div class="kpi-label">${label}</div>` +
+    `<div class="kpi-value">${value}</div>` +
+    (sub ? `<div class="kpi-sub">${sub}</div>` : '') + '</div>');
+  const gap = (latest, goal, lower, unit, dec = 1) => {
+    if (latest == null || goal == null) return '';
+    const g = lower ? latest - goal : goal - latest;
+    return g <= 0 ? '✓ at goal' : `${g.toFixed(dec)}${unit ? ' ' + unit : ''} to goal`;
+  };
+
+  const w = data.weight?.at(-1);
+  if (w) add('Weight', `${w.weight.toFixed(1)} lb`, gap(w.weight, GOALS.weightLbs, true, 'lb'));
+  const bf = data.bodyFat?.renpho?.at(-1);
+  if (bf) add('Body Fat', `${bf.renpho}%`, gap(bf.renpho, GOALS.bodyFatPct, true, '%'));
+  const rhr = data.rhr?.at(-1);
+  if (rhr) add('Resting HR', `${rhr.rhr} bpm`, gap(rhr.rhr, GOALS.rhrBpm, true, 'bpm', 0));
+  const hrv = data.hrv?.at(-1);
+  if (hrv) add('HRV', `${hrv.hrv} ms`, gap(hrv.hrv, GOALS.hrvMs, false, 'ms', 0));
+  const vo2 = data.vo2max?.at(-1);
+  if (vo2) add('VO2 Max', `${vo2.vo2max}`, gap(vo2.vo2max, GOALS.vo2max, false, '', 1));
+  const run = data.runs?.all?.at(-1);
+  if (run) add('Last Run', `${run.distMi.toFixed(1)} mi`, `${fmtPace(run.paceMinMi)} · ${relativeAgo(run.date)}`);
+  const vol = data.workoutVolume?.at(-1);
+  if (vol) add('This Week', `${vol.total_sets} sets`, `${vol.training_days} training days`);
+
+  grid.innerHTML = cards.join('') || '<p class="card-error">No data yet.</p>';
+}
+
 function setupAutoRefresh() {
   // In-place chart refresh instead of `location.reload()` — preserves scroll
   // position, active page tab, the range button you clicked, and the version
@@ -1259,7 +1294,7 @@ function setupAutoRefresh() {
   setInterval(() => { rebuildCharts(); }, 21600000);
 }
 
-const PAGES = ['body', 'running', 'lifts'];
+const PAGES = ['overview', 'body', 'running', 'lifts'];
 let _expandedCanvasId = null;
 
 function wirePageRouter() {
@@ -1269,7 +1304,7 @@ function wirePageRouter() {
 
 /** Show one of the three grid pages and sync nav highlight + a11y state. */
 function activatePage(target) {
-  const t = PAGES.includes(target) ? target : 'body';
+  const t = PAGES.includes(target) ? target : 'overview';
   for (const sec of document.querySelectorAll('.page')) {
     sec.classList.toggle('active', sec.id === `page-${t}`);
   }

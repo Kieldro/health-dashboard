@@ -226,6 +226,27 @@ canvas {
   font-size: 0.85rem;
 }
 
+/* Overview KPI cards */
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 1rem;
+}
+.kpi {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem 1.25rem;
+}
+.kpi-label { font-size: 0.8rem; color: var(--text-muted); }
+.kpi-value { font-size: 1.6rem; font-weight: 600; margin-top: 0.25rem; }
+.kpi-sub {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 /* Chart expand / collapse controls (top-right of each card) */
 .expand-btn,
 .expand-close {
