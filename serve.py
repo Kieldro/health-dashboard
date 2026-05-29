@@ -161,7 +161,9 @@ def api_zone_minutes():
         if not hr:
             continue
         d = datetime.strptime(date, "%Y-%m-%d")
-        week = (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
+        # Weeks run Saturday→Friday: weekday() is Mon=0…Sun=6, so (weekday-5)%7
+        # is the number of days back to the most recent Saturday.
+        week = (d - timedelta(days=(d.weekday() - 5) % 7)).strftime("%Y-%m-%d")
         zones = by_week.setdefault(week, [0, 0, 0, 0, 0])
         for h in hr:
             pct = h / HRMAX
