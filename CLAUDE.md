@@ -90,6 +90,7 @@ served live. After editing `serve.py`, restart the service.
 - HRmax for zone bins = **200 bpm**
 - Weight converted from kg via `* 2.20462`
 - Run-vs-walk filter (data.js `processRuns`): **avg HR ≥ 110 AND pace ≤ 18 min/mi** — `running_activities` has no sport column and includes walks; verified nothing faster than 12 min/mi has HR < 110, so this cuts zero real runs while dropping 20–35 min/mi strolls.
+- PR stars (lift charts, `prAnnotation`): rank the best set by estimated 1-rep max (Epley: `weight·(1+reps/30)`), not raw weight — so 100×10 outranks 100×9; label shows `weight×reps`. Bodyweight/rep-only lifts rank by reps.
 - 5K filter: 2.8–3.5 mi distance, 8–12 min/mi pace
 - Long runs: ≥ 5 miles
 - HR-recovery: min peak HR 165, sport=running only

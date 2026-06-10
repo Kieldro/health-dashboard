@@ -908,12 +908,24 @@ async function rebuildCharts(initial = false) {
    * `rankBy` picks which field decides "best": 'weight' (default) or 'y'.
    */
   function prAnnotation(dataPoints, label = 'PR', rankBy = 'weight') {
-    const arr = (dataPoints || []).filter(p => p && p[rankBy] != null && p.y != null);
+    // Rank the "best" set by estimated 1-rep max (Epley: weight·(1+reps/30)) so
+    // reps count — 100×10 (e1RM 133) beats 100×9 (130), while a near-max single
+    // still wins (200×1 → 207). Epley is only meaningful for low reps and the
+    // source log has occasional rep typos (a stray 205×250), so the weight ranking
+    // only considers plausible single sets (reps ≤ 20) — heavy singles are always
+    // kept. Rep-only/bodyweight lifts rank by reps directly (rankBy='y').
+    const REP_CAP = 20;
+    const score = rankBy === 'weight'
+      ? (p) => p.weight * (1 + (p.reps || 1) / 30)
+      : (p) => p.y;
+    const arr = (dataPoints || []).filter(p => p && p.y != null && (rankBy === 'weight'
+      ? p.weight != null && (p.reps == null || p.reps <= REP_CAP)
+      : p[rankBy] != null));
     if (arr.length === 0) return {};
-    const top = arr.reduce((m, p) => p[rankBy] > m[rankBy] ? p : m);
+    const top = arr.reduce((m, p) => score(p) > score(m) ? p : m);
     const id = label.replace(/\W+/g, '') || 'pr';
     const valueText = rankBy === 'weight' && top.weight != null
-      ? `${label} ${Math.round(top.weight)}`
+      ? `${label} ${Math.round(top.weight)}${top.reps ? '×' + top.reps : ''}`
       : label;
     return {
       [`${id}_pt`]: {
