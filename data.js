@@ -10,9 +10,10 @@ export async function loadAllData() {
     '/api/rhr', '/api/hrv', '/api/activities', '/api/vo2max',
     '/api/workout-volume', '/api/lift-progression', '/api/workout-sets',
     '/api/hr-recovery', '/api/zone-minutes',
+    '/api/sleep', '/api/steps', '/api/stress', '/api/body-battery',
   ];
   const results = await Promise.allSettled(endpoints.map(fetchJSON));
-  const [weight, bodyfat, dexa, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes] = results.map((r, i) => {
+  const [weight, bodyfat, dexa, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes, sleep, steps, stress, bodyBattery] = results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
     console.warn(`Failed to load ${endpoints[i]}:`, r.reason);
     return [];
@@ -31,22 +32,49 @@ export async function loadAllData() {
     workoutSets: processWorkoutSets(workoutSets),
     hrRecovery,
     zoneMinutes,
+    sleep: processSleep(sleep),
+    steps,
+    stress,
+    bodyBattery,
   };
+}
+
+// --- Sleep ---
+function processSleep(rows) {
+  // Convert SQLite TIME minutes → hours (1 decimal) for the stage-stacked chart.
+  const toH = (min) => (min == null ? null : Math.round(min / 6) / 10);
+  return rows.map(r => ({
+    date: r.date,
+    totalH: toH(r.total),
+    deepH: toH(r.deep),
+    lightH: toH(r.light),
+    remH: toH(r.rem),
+    awakeH: toH(r.awake),
+    score: r.score,
+    spo2: r.spo2,
+  }));
 }
 
 // --- Weight ---
 function processWeight(rows) {
   // Calendar-day-based moving averages (not entry-based)
   const calendarMA = (i, days) => {
+    // rows[i].date is "YYYY-MM-DD" parsed as UTC midnight, so step the cutoff
+    // back with UTC accessors. Local getDate/setDate civil-shift across a DST
+    // boundary and widen the window by a day (getWeeklyMileage avoids the same
+    // trap with getUTCDay). Null weights are skipped so one bad row can't drag
+    // the average toward zero.
     const cutoff = new Date(rows[i].date);
-    cutoff.setDate(cutoff.getDate() - (days - 1));
+    cutoff.setUTCDate(cutoff.getUTCDate() - (days - 1));
     const cutoffStr = cutoff.toISOString().split('T')[0];
     const window = [];
     for (let j = i; j >= 0; j--) {
       if (rows[j].date < cutoffStr) break;
-      window.push(rows[j].weight);
+      if (rows[j].weight != null) window.push(rows[j].weight);
     }
-    return Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10;
+    return window.length
+      ? Math.round((window.reduce((a, b) => a + b, 0) / window.length) * 10) / 10
+      : null;
   };
   return rows.map((d, i) => ({ ...d, ma7: calendarMA(i, 7), ma30: calendarMA(i, 30) }));
 }
@@ -77,7 +105,15 @@ function processMeasurements(measurements) {
 // --- Running ---
 function processRuns(activities) {
   const runs = activities
-    .filter(a => a.distance > 0 && a.duration > 0 && a.avg_hr > 0)
+    .filter(a => {
+      if (!(a.distance > 0 && a.duration > 0 && a.avg_hr > 0)) return false;
+      // Exclude walks logged in running_activities (it has no sport column).
+      // A run sustains avg HR ≥ 110 and pace ≤ 18 min/mi; verified against
+      // history that nothing faster than 12 min/mi has HR < 110, so this cuts
+      // zero real runs while dropping 20–35 min/mi strolls (see CLAUDE.md).
+      const paceMinMi = (a.duration / 60) / (a.distance / 1609.344);
+      return a.avg_hr >= 110 && paceMinMi <= 18;
+    })
     .map(a => {
       const distMi = a.distance / 1609.344;
       const durationMin = a.duration / 60;

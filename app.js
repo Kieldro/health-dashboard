@@ -123,7 +123,13 @@ function mergeAnnotations(opts, annotations) {
   Object.assign(opts.plugins.annotation.annotations, annotations);
 }
 
-const SAVED_RANGE = (typeof localStorage !== 'undefined' && localStorage.getItem('range')) || 'YTD';
+function safeGetItem(key) {
+  // localStorage access *throws* (not just returns null) on cookie-blocked
+  // Safari and sandboxed iframes; an unguarded read at module load would abort
+  // the whole app before the Chart fallback at the bottom can even run.
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+const SAVED_RANGE = safeGetItem('range') || 'YTD';
 let currentRange = ['1M','3M','6M','YTD','1Y','All'].includes(SAVED_RANGE) ? SAVED_RANGE : 'YTD';
 let currentMin = rangeMin(currentRange);
 const allCharts = [];
@@ -258,6 +264,9 @@ function lineDefaults(color) {
 
 /** Compute simple linear regression and return trendline points */
 function linearTrendline(points) {
+  // Drop null/NaN y's first: one null makes sumY NaN and the whole trendline
+  // vanishes (hrv/vo2/sleep-score series can carry gaps).
+  points = points.filter(p => p.y != null && !Number.isNaN(p.y));
   if (points.length < 2) return [];
   const xs = points.map(p => new Date(p.x).getTime());
   const ys = points.map(p => p.y);
@@ -282,7 +291,11 @@ function linearTrendline(points) {
 function computeMA(data, key, window) {
   return data.map((d, i) => {
     const start = Math.max(0, i - window + 1);
-    const slice = data.slice(start, i + 1);
+    // Skip nulls: a null coerces to 0 in the sum but still counts in the
+    // denominator, dragging the average toward zero (hrv/vo2 aren't NULL-filtered
+    // server-side). A window with no real values yields y:null (a gap, not 0).
+    const slice = data.slice(start, i + 1).filter(s => s[key] != null);
+    if (!slice.length) return { x: d.date, y: null };
     const avg = slice.reduce((sum, s) => sum + s[key], 0) / slice.length;
     return { x: d.date, y: Math.round(avg * 10) / 10 };
   });
@@ -350,11 +363,13 @@ const Crosshair = {
     if (Crosshair._raf) return;
     Crosshair._raf = requestAnimationFrame(() => {
       Crosshair._raf = null;
-      const page = originChart.canvas.closest('.page');
+      // originChart may have been destroyed by a rebuild between the event and
+      // this frame — its canvas goes null, so guard before dereferencing.
+      const page = originChart.canvas?.closest('.page');
       if (!page) return;
       for (const c of allCharts) {
         if (c === originChart) continue;
-        if (c.canvas.closest('.page') === page) c.draw();
+        if (c.canvas?.closest('.page') === page) c.draw();
       }
     });
   },
@@ -449,6 +464,7 @@ async function rebuildCharts(initial = false) {
   }
   _lastRefresh = Date.now();
 
+  try {
   // Tear down existing charts only AFTER a successful load, so a failed refresh
   // leaves the current charts on screen instead of blanking them. Preserves DOM
   // state (scroll, active tab, range button, version chip) a full reload would
@@ -1133,22 +1149,24 @@ async function rebuildCharts(initial = false) {
     trendline('rdlDB', rdlDBData, FADED.yellow),
   ], liftOpts('lbs', lowerBBDBAnno)));
 
-  // 16. Bodyweight (Pull-ups, Dips, Push-ups + Dead Hang seconds on right axis)
+  // 16. Bodyweight (Pull-ups, V-ups, Push-ups, Calf Raise + Dead Hang seconds on right axis)
   const pullData = liftData('pull ups');
-  const dipsData = liftData('dips');
+  // Bodyweight 'dips' is always logged weighted (0 rows under 'dips' — they live
+  // on the Upper Body Machines chart); v-ups (36 sessions) previously had no chart.
+  const vupData = liftData('v ups');
   const pushData = liftData('push ups');
   const calfBWData = liftData('calf raise bw');
   const hangData = liftData('dead hang');
   pending.push(createChart('bodyweightChart', 'line', [
     { ...setsScatter('pull ups', FADED.green), yAxisID: 'y' },
-    { ...setsScatter('dips', FADED.yellow), yAxisID: 'y' },
+    { ...setsScatter('v ups', FADED.yellow), yAxisID: 'y' },
     { ...setsScatter('push ups', FADED.red), yAxisID: 'y' },
     { ...setsScatter('calf raise bw', FADED.purple), yAxisID: 'y' },
     { ...setsScatter('dead hang', FADED.blue), yAxisID: 'y1' },
     { label: 'Pull-ups', data: pullData, ...lineDefaults(COLORS.green), yAxisID: 'y' },
     { ...trendline('pull', pullData, FADED.green), yAxisID: 'y' },
-    { label: 'Dips', data: dipsData, ...lineDefaults(COLORS.yellow), yAxisID: 'y' },
-    { ...trendline('dips', dipsData, FADED.yellow), yAxisID: 'y' },
+    { label: 'V-ups', data: vupData, ...lineDefaults(COLORS.yellow), yAxisID: 'y' },
+    { ...trendline('vup', vupData, FADED.yellow), yAxisID: 'y' },
     { label: 'Push-ups', data: pushData, ...lineDefaults(COLORS.red), yAxisID: 'y' },
     { ...trendline('push', pushData, FADED.red), yAxisID: 'y' },
     { label: 'Calf Raise', data: calfBWData, ...lineDefaults(COLORS.purple), yAxisID: 'y' },
@@ -1217,6 +1235,81 @@ async function rebuildCharts(initial = false) {
     trendline('neckFlex', neckFlexData, FADED.blue),
   ], neckOpts));
 
+  // 18. Sleep — stage hours stacked (deep + REM + light ≈ total sleep)
+  (() => {
+    const opts = baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'hours' });
+    opts.scales.x.stacked = true;
+    opts.scales.y.stacked = true;
+    mergeAnnotations(opts, { goal: goalLineAnnotation(7, 'goal 7h', COLORS.cyan) });
+    const stage = (key, color, label) => ({
+      label,
+      data: data.sleep.map(d => ({ x: d.date, y: d[key] })),
+      backgroundColor: color, borderColor: color, borderWidth: 0, stack: 'sleep',
+    });
+    pending.push(createChart('sleepChart', 'bar', [
+      stage('deepH', COLORS.blue, 'Deep'),
+      stage('remH', COLORS.purple, 'REM'),
+      stage('lightH', COLORS.cyan, 'Light'),
+    ], opts));
+  })();
+
+  // 19. Sleep Score (0–100) + 30-day MA
+  (() => {
+    const opts = baseOptions({ showLegend: true, timeUnit: 'month', yLabel: 'score' });
+    opts.scales.y.min = 0;
+    opts.scales.y.max = 100;
+    const scored = data.sleep.filter(d => d.score != null);
+    pending.push(createChart('sleepScoreChart', 'line', [
+      { label: 'Sleep Score', data: scored.map(d => ({ x: d.date, y: d.score })), ...lineDefaults(COLORS.purple) },
+      { label: '30-day MA', data: computeMA(scored, 'score', 30), ...lineDefaults(COLORS.yellow), pointRadius: 0 },
+    ], opts));
+  })();
+
+  // 20. Daily Steps (bar) + adaptive goal (line)
+  (() => {
+    const opts = baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'steps' });
+    pending.push(createChart('stepsChart', 'bar', [
+      {
+        label: 'Steps',
+        data: data.steps.map(d => ({ x: d.date, y: d.steps })),
+        backgroundColor: COLORS.blueBar, borderColor: COLORS.blue, borderWidth: 1, borderRadius: 3,
+      },
+      {
+        label: 'Goal', type: 'line',
+        data: data.steps.map(d => ({ x: d.date, y: d.step_goal })),
+        ...lineDefaults(COLORS.yellow), pointRadius: 0, borderDash: [6, 3],
+      },
+    ], opts));
+  })();
+
+  // 21. Stress (daily avg) + 30-day MA
+  (() => {
+    const opts = baseOptions({ showLegend: true, yLabel: 'stress' });
+    opts.scales.y.min = 0;
+    opts.scales.y.max = 100;
+    pending.push(createChart('stressChart', 'line', [
+      { label: 'Stress', data: data.stress.map(d => ({ x: d.date, y: d.stress })), ...lineDefaults(COLORS.orange) },
+      { label: '30-day MA', data: computeMA(data.stress, 'stress', 30), ...lineDefaults(COLORS.yellow), pointRadius: 0 },
+    ], opts));
+  })();
+
+  // 22. Body Battery — daily low→high range as a floating bar
+  (() => {
+    const opts = baseOptions({ showLegend: false, timeUnit: 'week', yLabel: 'energy' });
+    opts.scales.y.min = 0;
+    opts.scales.y.max = 100;
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx) => `${ctx.raw.y[0]}–${ctx.raw.y[1]} (low–high)`,
+    };
+    pending.push(createChart('bodyBatteryChart', 'bar', [
+      {
+        label: 'Body Battery',
+        data: data.bodyBattery.map(d => ({ x: d.date, y: [d.low, d.high] })),
+        backgroundColor: FADED.green, borderColor: COLORS.green, borderWidth: 1, borderRadius: 2,
+      },
+    ], opts));
+  })();
+
   // Populate all charts simultaneously so animations start in sync
   requestAnimationFrame(() => {
     try {
@@ -1242,6 +1335,14 @@ async function rebuildCharts(initial = false) {
       _refreshing = false;
     }
   });
+  } catch (e) {
+    // A synchronous throw during the ~750 lines of chart construction would
+    // otherwise leave _refreshing stuck true (the release lives in the rAF
+    // below), permanently blanking the page and no-op'ing every later refresh.
+    console.error('Chart build failed:', e);
+    _refreshing = false;
+    if (initial) showCardError('Failed to render charts.');
+  }
 }
 
 /** Inject latest-value + last-updated chip into chart card headers. */
@@ -1258,7 +1359,7 @@ function applyChartMetadata(data) {
   };
 
   const w = data.weight?.at(-1);
-  if (w) {
+  if (w && w.weight != null) {
     const vs30 = w.ma30 != null ? ` · ${signed(w.weight - w.ma30)} vs 30d` : '';
     setChartMeta('weightChart', `${w.weight.toFixed(1)} lb${vs30}`, w.date,
       goalTag(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }));
@@ -1296,6 +1397,18 @@ function applyChartMetadata(data) {
 
   const volLast = data.workoutVolume?.at(-1);
   if (volLast) setChartMeta('volumeChart', `${volLast.total_sets} sets · ${volLast.training_days} days`, volLast.week);
+
+  const sleepLast = data.sleep?.at(-1);
+  if (sleepLast) {
+    if (sleepLast.totalH != null) setChartMeta('sleepChart', `${sleepLast.totalH}h`, sleepLast.date);
+    if (sleepLast.score != null) setChartMeta('sleepScoreChart', `${sleepLast.score}`, sleepLast.date);
+  }
+  const stepsLast = data.steps?.at(-1);
+  if (stepsLast && stepsLast.steps != null) setChartMeta('stepsChart', `${stepsLast.steps.toLocaleString()} steps`, stepsLast.date);
+  const stressLast = data.stress?.at(-1);
+  if (stressLast && stressLast.stress != null) setChartMeta('stressChart', `${stressLast.stress} avg`, stressLast.date);
+  const bbLast = data.bodyBattery?.at(-1);
+  if (bbLast) setChartMeta('bodyBatteryChart', `${bbLast.low}–${bbLast.high}`, bbLast.date);
 }
 
 /** Render the Overview page: at-a-glance KPI cards (latest value + goal gap)
@@ -1315,7 +1428,7 @@ function renderOverview(data) {
   };
 
   const w = data.weight?.at(-1);
-  if (w) add('Weight', `${w.weight.toFixed(1)} lb`, gap(w.weight, GOALS.weightLbs, true, 'lb'));
+  if (w && w.weight != null) add('Weight', `${w.weight.toFixed(1)} lb`, gap(w.weight, GOALS.weightLbs, true, 'lb'));
   const bf = data.bodyFat?.renpho?.at(-1);
   if (bf) add('Body Fat', `${bf.renpho}%`, gap(bf.renpho, GOALS.bodyFatPct, true, '%'));
   const rhr = data.rhr?.at(-1);
@@ -1328,6 +1441,10 @@ function renderOverview(data) {
   if (run) add('Last Run', `${run.distMi.toFixed(1)} mi`, `${fmtPace(run.paceMinMi)} · ${relativeAgo(run.date)}`);
   const vol = data.workoutVolume?.at(-1);
   if (vol) add('This Week', `${vol.total_sets} sets`, `${vol.training_days} training days`);
+  const sl = data.sleep?.at(-1);
+  if (sl && sl.score != null) add('Sleep', `${sl.score}`, `${sl.totalH}h last night`);
+  const stp = data.steps?.at(-1);
+  if (stp && stp.steps != null) add('Steps', stp.steps.toLocaleString(), stp.step_goal != null ? `goal ${stp.step_goal.toLocaleString()}` : '');
 
   grid.innerHTML = cards.join('') || '<p class="card-error">No data yet.</p>';
 }
@@ -1344,7 +1461,7 @@ function setupAutoRefresh() {
   setInterval(() => { rebuildCharts(); }, 21600000);
 }
 
-const PAGES = ['overview', 'body', 'running', 'lifts'];
+const PAGES = ['overview', 'body', 'sleep', 'daily', 'running', 'lifts'];
 let _expandedCanvasId = null;
 
 function wirePageRouter() {

@@ -36,6 +36,8 @@ CONTENT_TYPES = {
     ".json": "application/json",
     ".png": "image/png",
     ".svg": "image/svg+xml",
+    ".ico": "image/x-icon",
+    ".webmanifest": "application/manifest+json",
 }
 
 # Only these static file types are publicly served. The web root is the repo
@@ -166,6 +168,8 @@ def api_zone_minutes():
         week = (d - timedelta(days=(d.weekday() - 5) % 7)).strftime("%Y-%m-%d")
         zones = by_week.setdefault(week, [0, 0, 0, 0, 0])
         for h in hr:
+            if not isinstance(h, (int, float)):
+                continue  # Strava emits null gaps when the HR sensor drops out
             pct = h / HRMAX
             for i, (lo, hi) in enumerate(ZONE_BOUNDS):
                 if lo <= pct < hi:
@@ -197,17 +201,89 @@ def api_hr_recovery():
     ]
 
 
+def _time_to_min(t):
+    """Parse a SQLite TIME string 'HH:MM:SS.ffffff' to float minutes (None if empty)."""
+    if not t:
+        return None
+    hh, mm, ss = t.split(":")
+    return round(int(hh) * 60 + int(mm) + float(ss) / 60, 1)
+
+
+def api_sleep():
+    """Per-night sleep: stage minutes (deep/light/rem/awake), total, score, SpO2.
+    Skips no-data nights (total_sleep '00:00:00' when the watch wasn't worn)."""
+    rows = query_db(GARMIN_DB, """
+        SELECT day as date, total_sleep, deep_sleep, light_sleep, rem_sleep,
+               awake, score, avg_spo2 as spo2
+        FROM sleep
+        WHERE total_sleep IS NOT NULL
+        ORDER BY day
+    """)
+    out = []
+    for r in rows:
+        total = _time_to_min(r["total_sleep"])
+        if not total:  # 0-minute nights = no data recorded
+            continue
+        out.append({
+            "date": r["date"], "total": total,
+            "deep": _time_to_min(r["deep_sleep"]),
+            "light": _time_to_min(r["light_sleep"]),
+            "rem": _time_to_min(r["rem_sleep"]),
+            "awake": _time_to_min(r["awake"]),
+            "score": r["score"], "spo2": r["spo2"],
+        })
+    return out
+
+
+def api_steps():
+    return query_db(GARMIN_DB,
+        "SELECT day as date, steps, step_goal FROM daily_summary "
+        "WHERE steps IS NOT NULL ORDER BY day")
+
+
+def api_stress():
+    return query_db(GARMIN_DB,
+        "SELECT day as date, stress_avg as stress FROM daily_summary "
+        "WHERE stress_avg IS NOT NULL ORDER BY day")
+
+
+def api_body_battery():
+    return query_db(GARMIN_DB,
+        "SELECT day as date, bb_max as high, bb_min as low FROM daily_summary "
+        "WHERE bb_max IS NOT NULL ORDER BY day")
+
+
+# Cache the version keyed on the reflog mtime (.git/logs/HEAD advances on every
+# commit/checkout) so the hot path doesn't fork two git processes per page load.
+_version_cache = {"sig": None, "data": None}
+
+
 def api_version():
+    def sig():
+        s = 0.0
+        for p in (".git/logs/HEAD", ".git/HEAD"):
+            try:
+                s = max(s, os.path.getmtime(os.path.join(STATIC_DIR, p)))
+            except OSError:
+                pass
+        return s
+    cur = sig()
+    if _version_cache["data"] is not None and _version_cache["sig"] == cur:
+        return _version_cache["data"]
+
     def git(*args):
         return subprocess.check_output(
             ["git", "-C", STATIC_DIR, *args],
             text=True, stderr=subprocess.DEVNULL,
         ).strip()
     try:
-        return {"sha": git("rev-parse", "--short", "HEAD"),
+        data = {"sha": git("rev-parse", "--short", "HEAD"),
                 "date": git("log", "-1", "--format=%cs", "HEAD")}
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return {"sha": "dev", "date": "unknown"}
+        data = {"sha": "dev", "date": "unknown"}
+    _version_cache["sig"] = cur
+    _version_cache["data"] = data
+    return data
 
 
 def api_routes():
@@ -279,6 +355,10 @@ API_ROUTES = {
     "/api/workout-sets": api_workout_sets,
     "/api/zone-minutes": api_zone_minutes,
     "/api/hr-recovery": api_hr_recovery,
+    "/api/sleep": api_sleep,
+    "/api/steps": api_steps,
+    "/api/stress": api_stress,
+    "/api/body-battery": api_body_battery,
     "/api/version": api_version,
     "/api/routes": api_routes,
     "/api/schema": api_schema,
@@ -300,12 +380,21 @@ class Handler(SimpleHTTPRequestHandler):
             try:
                 data = API_ROUTES[path]()
                 body = json.dumps(data).encode()
-                self._send_json(200, body)
             except Exception:
                 # Full detail goes to the log only; the public response stays
                 # generic so exception text (paths, SQL/schema hints) isn't leaked.
                 logger.exception("API handler %s failed", path)
-                self._send_json(500, json.dumps({"error": "internal error"}).encode())
+                try:
+                    self._send_json(500, json.dumps({"error": "internal error"}).encode())
+                except (BrokenPipeError, ConnectionResetError):
+                    pass
+                return
+            # Serialize before sending so a handler/JSON error can't fire after the
+            # 200 status line is on the wire (which would write a second response).
+            try:
+                self._send_json(200, body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # client disconnected mid-response — nothing to salvage
             return
 
         if self._is_private_path():
@@ -313,6 +402,23 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         super().do_GET()
+
+    def do_HEAD(self):
+        # SimpleHTTPRequestHandler ships its own do_HEAD that calls send_head()
+        # directly, bypassing do_GET's _is_private_path guard. Without this
+        # override, HEAD would disclose the size/mtime/existence of source, .git,
+        # logs and other private files on the public no-auth endpoint. Route HEAD
+        # through the same checks as GET.
+        path = self.path.split("?", 1)[0].split("#", 1)[0]
+        if path in API_ROUTES:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            return
+        if self._is_private_path():
+            self.send_error(404, "File not found")
+            return
+        super().do_HEAD()
 
     def _is_private_path(self):
         """True for any static path that must not be public.
@@ -325,7 +431,10 @@ class Handler(SimpleHTTPRequestHandler):
         logs/ path segment. Directories never list.
         """
         root = os.path.realpath(STATIC_DIR)
-        real = os.path.realpath(self.translate_path(self.path))
+        try:
+            real = os.path.realpath(self.translate_path(self.path))
+        except ValueError:
+            return True  # e.g. embedded NUL in the path — never serve it
         if real != root and not real.startswith(root + os.sep):
             return True  # escaped the web root
         rel = os.path.relpath(real, root)
@@ -376,11 +485,15 @@ class Handler(SimpleHTTPRequestHandler):
         #                            payloads are tiny anyway)
         #   images                 → max-age=3600 (rarely change, save tunnel bw)
         path = self.path.split("?", 1)[0]
-        if (path.startswith("/api/") or path.endswith(".html")
-                or path.endswith(".js") or path.endswith(".css") or path == "/"):
-            self.send_header("Cache-Control", "no-store")
-        else:
+        ext = os.path.splitext(path)[1].lower()
+        # Only long-cache immutable binary assets (images/fonts). Everything else
+        # — entry points (html/js/css), /api/*, and error responses (e.g. a 404 on
+        # a blocked private path) — is no-store, so deploys propagate live and a
+        # CDN never edge-caches an error or any disclosed metadata.
+        if ext in (".png", ".svg", ".ico", ".webmanifest", ".jpg", ".jpeg", ".gif", ".webp", ".woff", ".woff2"):
             self.send_header("Cache-Control", "public, max-age=3600")
+        else:
+            self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
     def guess_type(self, path):

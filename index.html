@@ -24,6 +24,8 @@
     <nav class="page-nav" id="pageNav" aria-label="Pages">
       <a href="#overview" class="active" aria-current="page">Overview</a>
       <a href="#body">Body</a>
+      <a href="#sleep">Sleep</a>
+      <a href="#daily">Daily</a>
       <a href="#running">Running</a>
       <a href="#lifts">Lifts</a>
     </nav>
@@ -65,6 +67,30 @@
       <div class="chart-card loading">
         <h2>HRV (Overnight Avg)</h2>
         <canvas id="hrvChart"></canvas>
+      </div>
+    </section>
+    <section id="page-sleep" class="chart-grid page" aria-label="Sleep metrics">
+      <div class="chart-card loading">
+        <h2>Sleep Duration &amp; Stages</h2>
+        <canvas id="sleepChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Sleep Score</h2>
+        <canvas id="sleepScoreChart"></canvas>
+      </div>
+    </section>
+    <section id="page-daily" class="chart-grid page" aria-label="Daily activity metrics">
+      <div class="chart-card loading">
+        <h2>Daily Steps</h2>
+        <canvas id="stepsChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Stress</h2>
+        <canvas id="stressChart"></canvas>
+      </div>
+      <div class="chart-card loading">
+        <h2>Body Battery (daily range)</h2>
+        <canvas id="bodyBatteryChart"></canvas>
       </div>
     </section>
     <section id="page-running" class="chart-grid page" aria-label="Running metrics">

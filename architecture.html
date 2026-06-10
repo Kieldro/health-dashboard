@@ -335,7 +335,7 @@
       <div class="col">
         <div class="node accent">
           <div class="node-name">serve.py</div>
-          <div class="node-desc">Python stdlib HTTP · single-threaded · stateless</div>
+          <div class="node-desc">Python stdlib HTTP · threaded (ThreadingHTTPServer) · stateless</div>
         </div>
         <div class="node blue cluster">
           <div class="cluster-title">/api/* <span id="apiRouteCount" style="opacity:0.6">(live)</span></div>
@@ -359,7 +359,7 @@
       <div class="col">
         <div class="node blue">
           <div class="node-name">index.html</div>
-          <div class="node-desc">3 pages: Body · Running · Lifts</div>
+          <div class="node-desc">6 pages: Overview · Body · Sleep · Daily · Running · Lifts</div>
         </div>
         <div class="node cyan">
           <div class="node-name">data.js</div>
@@ -367,7 +367,7 @@
         </div>
         <div class="node accent">
           <div class="node-name">app.js</div>
-          <div class="node-desc">creates ~20 Chart.js charts</div>
+          <div class="node-desc">creates ~27 Chart.js charts</div>
         </div>
         <div class="node yellow">
           <div class="node-name">Chart.js 4.4.7</div>
@@ -430,7 +430,7 @@
   <section class="section">
     <h2>Request flow — what happens when you load the page</h2>
     <p><strong>1.</strong> Browser → <code>https://health.keo.life/</code> → CF edge → tunnel → <code>localhost:8888</code> → <code>serve.py</code> sends <code>index.html</code>.</p>
-    <p><strong>2.</strong> Page imports <code>app.js</code> (with cache-busting <code>?v=Date.now()</code>), which imports <code>data.js</code>.</p>
+    <p><strong>2.</strong> Page imports <code>app.js</code> (served <code>no-store</code>, so edits propagate live without cache-busting), which imports <code>data.js</code>.</p>
     <p><strong>3.</strong> <code>data.js</code> fires 13 parallel <code>fetch('/api/*')</code> calls — each hits a handler in <code>serve.py</code> that runs one SQL statement against <code>~/HealthData/DBs/garmin.db</code> (or reads a JSON master file for HR-recovery / zone-minutes).</p>
     <p><strong>4.</strong> All responses come back as JSON with <code>Cache-Control: no-store</code>; <code>data.js</code> reshapes them (e.g. computes Navy BF%, weekly mileage, moving averages).</p>
     <p><strong>5.</strong> <code>app.js</code> hands each dataset to a Chart.js canvas. The skeleton-pulse overlay on each card fades as the chart populates.</p>
