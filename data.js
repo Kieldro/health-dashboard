@@ -11,9 +11,10 @@ export async function loadAllData() {
     '/api/workout-volume', '/api/lift-progression', '/api/workout-sets',
     '/api/hr-recovery', '/api/zone-minutes',
     '/api/sleep', '/api/steps', '/api/stress', '/api/body-battery',
+    '/api/lactate-threshold',
   ];
   const results = await Promise.allSettled(endpoints.map(fetchJSON));
-  const [weight, bodyfat, dexa, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes, sleep, steps, stress, bodyBattery] = results.map((r, i) => {
+  const [weight, bodyfat, dexa, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes, sleep, steps, stress, bodyBattery, lactateThreshold] = results.map((r, i) => {
     if (r.status === 'fulfilled') return r.value;
     console.warn(`Failed to load ${endpoints[i]}:`, r.reason);
     return [];
@@ -36,6 +37,7 @@ export async function loadAllData() {
     steps,
     stress,
     bodyBattery,
+    lactateThreshold,  // [{date, lthr, pace, ftp}] — chart-ready from serve.py
   };
 }
 

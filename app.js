@@ -863,6 +863,50 @@ async function rebuildCharts(initial = false) {
     ], opts));
   })();
 
+  // 10e. Lactate Threshold — Garmin's detected LT heart rate (bpm, left axis) +
+  //      LT pace (min/mi, right axis). Steps up over time as fitness improves.
+  (() => {
+    const lt = data.lactateThreshold || [];
+    const opts = baseOptions({ showLegend: true });
+    opts.scales = {
+      x: xScale('month'),
+      y: {
+        position: 'left',
+        grid: { color: GRID_COLOR },
+        ticks: { color: COLORS.red },
+        title: { display: true, text: 'bpm', color: COLORS.red },
+      },
+      y1: {
+        position: 'right',
+        grid: { drawOnChartArea: false },
+        ticks: { color: COLORS.green },
+        title: { display: true, text: 'min/mi', color: COLORS.green },
+      },
+    };
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx) => ctx.dataset.label === 'LT Pace'
+        ? `LT Pace: ${fmtPace(ctx.parsed.y)}`
+        : `${ctx.dataset.label}: ${ctx.parsed.y}`,
+    };
+    // Dual y-axes — y-zoom is ambiguous, restrict to x.
+    opts.plugins.zoom.zoom.mode = 'x';
+    opts.plugins.zoom.pan.mode = 'x';
+    pending.push(createChart('ltChart', 'line', [
+      {
+        label: 'LT Heart Rate',
+        data: lt.map(d => ({ x: d.date, y: d.lthr })),
+        ...lineDefaults(COLORS.red),
+        yAxisID: 'y',
+      },
+      {
+        label: 'LT Pace',
+        data: lt.map(d => ({ x: d.date, y: d.pace })),
+        ...lineDefaults(COLORS.green),
+        yAxisID: 'y1',
+      },
+    ], opts));
+  })();
+
   // 11. Weekly Training Volume
   (() => {
     const opts = baseOptions({ timeUnit: 'week', yLabel: 'sets' });
@@ -1407,6 +1451,10 @@ function applyChartMetadata(data) {
   if (recLast) setChartMeta('hrRecoveryChart', `${recLast.recovery} bpm drop`, recLast.date,
     goalTag(recLast.recovery, GOALS.hrRecovery60Bpm, { unit: 'bpm', decimals: 0 }));
 
+  const ltLast = data.lactateThreshold?.at(-1);
+  if (ltLast) setChartMeta('ltChart',
+    `${ltLast.lthr} bpm${ltLast.pace != null ? ' · ' + fmtPace(ltLast.pace) : ''}`, ltLast.date);
+
   const volLast = data.workoutVolume?.at(-1);
   if (volLast) setChartMeta('volumeChart', `${volLast.total_sets} sets · ${volLast.training_days} days`, volLast.week);
 
@@ -1449,6 +1497,8 @@ function renderOverview(data) {
   if (hrv) add('HRV', `${hrv.hrv} ms`, gap(hrv.hrv, GOALS.hrvMs, false, 'ms', 0));
   const vo2 = data.vo2max?.at(-1);
   if (vo2) add('VO2 Max', `${vo2.vo2max}`, gap(vo2.vo2max, GOALS.vo2max, false, '', 1));
+  const lt = data.lactateThreshold?.at(-1);
+  if (lt) add('Lactate Threshold', `${lt.lthr} bpm`, lt.pace != null ? `${fmtPace(lt.pace)} pace` : '');
   const run = data.runs?.all?.at(-1);
   if (run) add('Last Run', `${run.distMi.toFixed(1)} mi`, `${fmtPace(run.paceMinMi)} · ${relativeAgo(run.date)}`);
   const vol = data.workoutVolume?.at(-1);

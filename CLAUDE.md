@@ -45,6 +45,7 @@ HEAD is routed through the same private-path guard as GET (see Gotchas).
 | `/api/lift-progression` | `workout_exercises` | `{week, exercise, top_weight, top_reps, max_reps}` |
 | `/api/workout-sets` | `workout_sets` | `{week, exercise, set_num, weight, reps}` |
 | `/api/hr-recovery` | `hr_recovery.json` | `{date, recovery, name}` (sport=running) |
+| `/api/lactate-threshold` | `lactate_threshold.json` | `{date, lthr, pace, ftp}` (Garmin LT snapshot; pace = min/mi, speed decoded m/s÷10) |
 | `/api/zone-minutes` | `strava_streams/*` | `{week, z1, z2, z3, z4, z5}` (cached by mtime) |
 | `/api/sleep` | `sleep` | `{date, total, deep, light, rem, awake, score, spo2}` (minutes; 0-min nights skipped) |
 | `/api/steps` | `daily_summary` | `{date, steps, step_goal}` |
@@ -58,16 +59,16 @@ HEAD is routed through the same private-path guard as GET (see Gotchas).
 ## Frontend
 - `index.html` — six `#hash`-switched "pages": Overview (KPI landing) / Body / Sleep / Daily / Running / Lifts. Header has range presets (1M/3M/6M/YTD/1Y/All), GitHub link, architecture link.
 - `data.js` — fires `Promise.allSettled` of all `/api/*` fetches, returns a `data` object; missing endpoints fall back to `[]`. Computes derived series (7-day MA weight, Navy BF%, weekly mileage, sleep-stage hours, etc.).
-- `app.js` — creates ~27 Chart.js charts. `rebuildCharts()` is idempotent and re-callable (used for the 6h auto-refresh) so DOM state is preserved.
+- `app.js` — creates ~28 Chart.js charts. `rebuildCharts()` is idempotent and re-callable (used for the 6h auto-refresh) so DOM state is preserved.
 - `styles.css` — dark theme, CSS grid layout, skeleton-pulse loading state.
 - `architecture.html` — self-contained architecture diagram (also served at `/architecture.html`).
 
 ## Charts (current roster)
-**Overview page**: KPI cards (latest value + goal gap) — Weight · Body Fat · RHR · HRV · VO2 · Last Run · This Week · Sleep · Steps
+**Overview page**: KPI cards (latest value + goal gap) — Weight · Body Fat · RHR · HRV · VO2 · Lactate Threshold · Last Run · This Week · Sleep · Steps
 **Body page** (6): Weight Trend · Body Fat % (Renpho + Navy + DEXA) · Body Measurements · Limb Measurements · Resting HR · HRV
 **Sleep page** (2): Sleep Duration & Stages (deep/REM/light stacked, 7h goal) · Sleep Score (+30d MA)
 **Daily page** (3): Daily Steps (vs adaptive goal) · Stress (+30d MA) · Body Battery (daily low→high range)
-**Running page** (8): Efficiency Factor · 5K HR + Pace · Long Run Distance · Weekly Mileage · VO2 Max · HR Recovery · Weekly HR Zone Minutes · Training Log (bubble)
+**Running page** (9): Efficiency Factor · 5K HR + Pace · Long Run Distance · Weekly Mileage · VO2 Max · HR Recovery · Weekly HR Zone Minutes · Training Log (bubble) · Lactate Threshold (LT HR + pace, dual-axis)
 **Lifts page** (8): Weekly Volume · Upper Body Machines · Upper Body DB · Lower Body — Legs · Lower Body — Hip/Core · Lower Body BB/DB · Bodyweight (Pull-ups/V-ups/Push-ups/Calf + Dead Hang) · Neck (dot size = weight)
 
 ## Development

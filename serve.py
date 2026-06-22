@@ -201,6 +201,38 @@ def api_hr_recovery():
     ]
 
 
+def api_lactate_threshold():
+    """Lactate-threshold trend from the nightly Garmin snapshot
+    (~/garmin-sync/data/master/lactate_threshold.json — one entry per sync day).
+
+    Garmin stores LT speed as metres-per-second ÷ 10 (e.g. 0.30278 → 3.028 m/s,
+    which is 10.9 km/h → 8:52/mi); multiply by 10, then 26.8224 / (m/s) gives
+    min/mi. FTP (running functional-threshold power, watts) rides along in the
+    same file as a bonus series. Deduped to the latest reading per date."""
+    path = os.path.expanduser("~/garmin-sync/data/master/lactate_threshold.json")
+    if not os.path.isfile(path):
+        return []
+    with open(path) as f:
+        rows = json.load(f)
+    by_date = {}
+    for r in rows:
+        date = r.get("date")
+        shr = r.get("speed_and_heart_rate") or {}
+        pwr = r.get("power") or {}
+        lthr = shr.get("heartRate")
+        if not date or lthr is None:
+            continue
+        speed = shr.get("speed")
+        pace = round(26.8224 / (speed * 10), 2) if speed else None  # m/s÷10 → min/mi
+        by_date[date] = {
+            "date": date,
+            "lthr": lthr,
+            "pace": pace,
+            "ftp": pwr.get("functionalThresholdPower"),
+        }
+    return [by_date[d] for d in sorted(by_date)]
+
+
 def _time_to_min(t):
     """Parse a SQLite TIME string 'HH:MM:SS.ffffff' to float minutes (None if empty)."""
     if not t:
@@ -355,6 +387,7 @@ API_ROUTES = {
     "/api/workout-sets": api_workout_sets,
     "/api/zone-minutes": api_zone_minutes,
     "/api/hr-recovery": api_hr_recovery,
+    "/api/lactate-threshold": api_lactate_threshold,
     "/api/sleep": api_sleep,
     "/api/steps": api_steps,
     "/api/stress": api_stress,
