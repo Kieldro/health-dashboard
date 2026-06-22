@@ -16,7 +16,7 @@ const COLORS = {
 // Personal goals from /home/keo/Documents/notes/goals.md.
 // Near-term targets (Summer 2026); a few longer-term values noted in comments.
 const GOALS = {
-  weightLbs: 200,        // updated 2026-05-29 (was 202)
+  weightLbs: 197,        // updated 2026-06-22 (was 200)
   bodyFatPct: 13,        // Jul 6 2026, DEXA-verified (Renpho reads +1.1% high)
   rhrBpm: 55,            // Jan 2027 (currently ~62)
   hrvMs: 44,             // late 2027 (currently ~25)
