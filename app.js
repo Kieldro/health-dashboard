@@ -16,8 +16,10 @@ const COLORS = {
 // Personal goals from /home/keo/Documents/notes/goals.md.
 // Near-term targets (Summer 2026); a few longer-term values noted in comments.
 const GOALS = {
-  weightLbs: 197,        // updated 2026-06-22 (was 200)
-  bodyFatPct: 13,        // Jul 6 2026, DEXA-verified (Renpho reads +1.1% high)
+  weightLbs: 190,        // updated 2026-09-30 (was 193) — late Oct 2026 per goals.md
+  bodyFatPct: 12,        // updated 2026-08-10 (was 13). DEXA scale — pairs with the 193 lb goal.
+                         // Ignore the Renpho body-fat number: it isn't a measurement, it's
+                         // 0.105 * weight - 5.28 (R^2 = 0.996 vs weight alone, Feb-Aug 2026).
   rhrBpm: 55,            // Jan 2027 (currently ~62)
   hrvMs: 44,             // late 2027 (currently ~25)
   vo2max: 50,            // Jan 2027 (currently ~40)
@@ -1673,5 +1675,10 @@ if (typeof Chart === 'undefined') {
   showCardError('Charts failed to load — check your connection and refresh.');
 } else {
   Chart.register(Crosshair);
+  // Annotations (goal lines, PR stars, events) are part of the chart frame —
+  // draw them in place instead of animating. With animation on, a card resize
+  // during the initial data animation (skeleton removal) got overwritten by the
+  // still-running tween, leaving lines at the pre-resize pixel (goal 190 drew at ~193).
+  Chart.defaults.plugins.annotation.animations = false;
   init();
 }
