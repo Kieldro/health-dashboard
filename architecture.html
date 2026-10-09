@@ -264,38 +264,39 @@
     <!-- Col 2: Sync -->
     <div>
       <div class="col-title">2 · Ingestion</div>
-      <div class="col-subtitle">~/garmin-sync · cron 23:00</div>
+      <div class="col-subtitle">~/garmin-sync · <span id="cronStart">cron</span></div>
+      <!-- Start times are filled in live from /api/cron (see script), keyed by data-job. -->
       <div class="col">
         <div class="node blue">
-          <div class="node-name">garmindb_cli.py<span class="node-time">23:00</span></div>
+          <div class="node-name">garmindb_cli.py<span class="node-time" data-job="garmindb_cli"></span></div>
           <div class="node-desc">downloads + analyzes Garmin → garmin.db</div>
         </div>
         <div class="node green">
-          <div class="node-name">renpho_sync.py<span class="node-time">23:05</span></div>
+          <div class="node-name">renpho_sync.py<span class="node-time" data-job="renpho_sync"></span></div>
           <div class="node-desc">scale → weight + body_fat tables</div>
         </div>
         <div class="node blue">
-          <div class="node-name">sync_v2.py<span class="node-time">23:08</span></div>
+          <div class="node-name">sync_v2.py<span class="node-time" data-job="sync_v2"></span></div>
           <div class="node-desc">Garmin daily data → JSON masters</div>
         </div>
         <div class="node cyan">
-          <div class="node-name">merge_daily.py<span class="node-time">23:10</span></div>
+          <div class="node-name">merge_daily.py<span class="node-time" data-job="merge_daily"></span></div>
           <div class="node-desc">stitches unified daily JSON</div>
         </div>
         <div class="node red">
-          <div class="node-name">workout_sync.py<span class="node-time">23:12</span></div>
+          <div class="node-name">workout_sync.py<span class="node-time" data-job="workout_sync"></span></div>
           <div class="node-desc">lifting sets / volume tables</div>
         </div>
         <div class="node orange">
-          <div class="node-name">strava_sync.py<span class="node-time">23:15</span></div>
+          <div class="node-name">strava_sync.py<span class="node-time" data-job="strava_sync"></span></div>
           <div class="node-desc">activities + streams pull</div>
         </div>
         <div class="node orange">
-          <div class="node-name">strava_merge.py<span class="node-time">23:20</span></div>
+          <div class="node-name">strava_merge.py<span class="node-time" data-job="strava_merge"></span></div>
           <div class="node-desc">merges into running_activities</div>
         </div>
         <div class="node red">
-          <div class="node-name">hr_recovery.py<span class="node-time">23:25</span></div>
+          <div class="node-name">hr_recovery.py<span class="node-time" data-job="hr_recovery"></span></div>
           <div class="node-desc">computes 60s HR drop per run</div>
         </div>
       </div>
@@ -421,17 +422,18 @@
 
   <!-- ── Schedule timeline ──────────────────────────────────────── -->
   <section class="section">
-    <h2>Nightly sync schedule <span style="font-family:ui-monospace,monospace;color:var(--accent);font-size:0.78rem">crontab · 23:00 CDT</span></h2>
+    <h2>Sync schedule <span id="cronWhen" style="font-family:ui-monospace,monospace;color:var(--accent);font-size:0.78rem">crontab</span></h2>
     <p style="margin-bottom:0.8rem">Runs in this exact order so each step's output is available to the next:</p>
     <div class="timeline" id="cronTimeline"></div>
+    <p id="timerNote" style="margin-top:0.8rem;font-size:0.78rem;color:var(--text-muted)" hidden></p>
   </section>
 
   <!-- ── How a request flows ───────────────────────────────────── -->
   <section class="section">
     <h2>Request flow — what happens when you load the page</h2>
-    <p><strong>1.</strong> Browser → <code>https://health.keo.life/</code> → CF edge → tunnel → <code>localhost:8888</code> → <code>serve.py</code> sends <code>index.html</code>.</p>
+    <p><strong>1.</strong> Browser → <code>https://health.keo.life/</code> → CF edge → tunnel → <code>localhost:8888</code> → <code>serve.py</code> sends <code>index.html</code>. (A plain <code>http://</code> visit is answered with a 301 to the <code>https://</code> URL first.)</p>
     <p><strong>2.</strong> Page imports <code>app.js</code> (served <code>no-store</code>, so edits propagate live without cache-busting), which imports <code>data.js</code>.</p>
-    <p><strong>3.</strong> <code>data.js</code> fires 13 parallel <code>fetch('/api/*')</code> calls — each hits a handler in <code>serve.py</code> that runs one SQL statement against <code>~/HealthData/DBs/garmin.db</code> (or reads a JSON master file for HR-recovery / zone-minutes).</p>
+    <p><strong>3.</strong> <code>data.js</code> fires one <code>fetch('/api/*')</code> per dataset, all in parallel — each hits a handler in <code>serve.py</code> that runs one read-only SQL statement against <code>~/HealthData/DBs/garmin.db</code> (or reads a JSON master file for HR-recovery / zone-minutes / lactate threshold).</p>
     <p><strong>4.</strong> All responses come back as JSON with <code>Cache-Control: no-store</code>; <code>data.js</code> reshapes them (e.g. computes Navy BF%, weekly mileage, moving averages).</p>
     <p><strong>5.</strong> <code>app.js</code> hands each dataset to a Chart.js canvas. The skeleton-pulse overlay on each card fades as the chart populates.</p>
     <p><strong>6.</strong> The page auto-reloads when you tab back in after 1h, or every 6h if left open.</p>
@@ -442,7 +444,7 @@
     <h2>Notable design choices</h2>
     <p><strong>SQLite as the source of truth.</strong> The sync pipeline owns <code>garmin.db</code>; the dashboard only reads. Adding a chart = adding one SQL query in <code>serve.py</code> and one dataset in <code>app.js</code>.</p>
     <p><strong>No build step.</strong> Plain HTML + ES modules + Chart.js from a CDN. Edit a file → reload the page. The only "deployment" is <code>systemctl --user restart health-dashboard.service</code>.</p>
-    <p><strong>Stateless server.</strong> Every API call is a fresh SQL query. The one exception is <code>/api/zone-minutes</code>, which caches its CPU-heavy result keyed on the input files' mtime.</p>
+    <p><strong>Stateless server.</strong> Every API call is a fresh SQL query. The exceptions: <code>/api/zone-minutes</code> caches its CPU-heavy result until one of its input files changes, and <code>/api/cron</code> / <code>/api/version</code> cache briefly because they fork a process. <code>/api/health</code> reports how fresh each source is (503 when one has gone stale).</p>
     <p><strong>Public via Cloudflare Tunnel.</strong> No open inbound ports on this machine; <code>cloudflared</code> dials out to CF edge and CF terminates TLS. The dashboard is reachable from anywhere without VPN, and the box itself stays firewalled.</p>
     <p style="margin-top:0.6rem;font-size:0.78rem;color:var(--text-muted)"><strong>Where this page gets its data:</strong> the SQLite-table chips fetch <code>/api/schema</code>, the route chips fetch <code>/api/routes</code>, the schedule reads <code>/api/cron</code>. So this diagram can't drift from the running system — it shows what's actually there right now. Static parts (boxes, columns) live in the markup. Detailed prose docs live in <code>CLAUDE.md</code> alongside the code on GitHub.</p>
   </section>
@@ -487,32 +489,67 @@
         if (apiCountEl) apiCountEl.textContent = `(${routes.length} routes · live)`;
       }
 
-      // Cron timeline
+      // Sync schedule. /api/cron returns [{time, name}] in run order. Entries
+      // expanded from the pipeline script also carry {via, step, steps}: they
+      // share one cron start time and run back-to-back. The systemd timer's
+      // runs are tagged via: 'garmin-sync.timer'.
       const cron = await fetchJSON('/api/cron');
       const tlEl = document.getElementById('cronTimeline');
       if (cron && tlEl) {
         const friendly = {
-          'garmindb_cli.py': 'download + analyze',
-          'renpho_sync.py': 'scale → DB',
-          'sync_v2.py': 'Garmin → JSON',
-          'merge_daily.py': 'unified.json',
-          'workout_sync.py': 'lifts → DB',
-          'strava_sync.py': 'activities + streams',
-          'strava_merge.py': '→ running_activities',
-          'hr_recovery.py': '60s drop / run',
-          'backup_garmin_db.sh': 'rotating snapshot',
+          garmindb_cli: 'download + analyze',
+          renpho_sync: 'scale → DB',
+          sync_v2: 'Garmin → JSON',
+          merge_daily: 'unified.json',
+          workout_sync: 'lifts → DB',
+          strava_sync: 'activities + streams',
+          strava_merge: '→ running_activities',
+          hr_recovery: '60s drop / run',
+          backup_garmin_db: 'rotating snapshot',
         };
+        // An entry is named after its script file (garmindb_cli.py) or, for a
+        // pipeline step, a shorter step name (garmindb) — resolve either one.
+        const base = name => name.replace(/\.(py|sh)$/, '');
+        const jobKey = name => {
+          const n = base(name), keys = Object.keys(friendly);
+          return keys.find(k => k === n) || keys.find(k => k.startsWith(n) || n.startsWith(k));
+        };
+        // Only a pipeline's first step starts on the clock; the rest follow it.
+        const when = job => job.step > 1 ? `→ ${job.step}/${job.steps}`
+          : job.step ? `${job.time} · 1/${job.steps}` : job.time;
+        const div = (cls, text) => {
+          const el = document.createElement('div');
+          el.className = cls;
+          el.textContent = text;
+          return el;
+        };
+
+        const timers = cron.filter(j => (j.via || '').endsWith('.timer'));
+        const jobs = cron.filter(j => !timers.includes(j));
         // CSS targets exactly N columns; recompute for live count.
-        tlEl.style.gridTemplateColumns = `repeat(${Math.min(cron.length, 9)}, minmax(0, 1fr))`;
-        cron.forEach(job => {
-          const step = document.createElement('div');
-          step.className = 'tl-step';
-          step.innerHTML = `
-            <div class="tl-time">${job.time}</div>
-            <div class="tl-name">${job.name.replace(/\.(py|sh)$/, '')}</div>
-            <div class="tl-desc">${friendly[job.name] || ''}</div>`;
+        tlEl.style.gridTemplateColumns = `repeat(${Math.max(1, Math.min(jobs.length, 9))}, minmax(0, 1fr))`;
+        jobs.forEach(job => {
+          const step = div('tl-step', '');
+          step.append(div('tl-time', when(job)), div('tl-name', base(job.name)),
+                      div('tl-desc', friendly[jobKey(job.name)] || ''));
           tlEl.appendChild(step);
+          // Same label on the matching Ingestion node, if the diagram has one.
+          const node = document.querySelector(`.node-time[data-job="${jobKey(job.name)}"]`);
+          if (node && !node.textContent) node.textContent = when(job);
         });
+
+        if (jobs.length) {
+          const pipeline = jobs.find(j => j.step)?.via;
+          const start = `cron ${jobs[0].time}`;
+          document.getElementById('cronStart').textContent = start;
+          document.getElementById('cronWhen').textContent =
+            `${start}${pipeline ? ` · ${pipeline}, ${jobs.filter(j => j.step).length} steps in sequence` : ''} · server local time`;
+        }
+        if (timers.length) {
+          const note = document.getElementById('timerNote');
+          note.textContent = `Also: ${timers[0].via} (systemd user timer) runs ${base(timers[0].name)} at ${timers.map(t => t.time).join(' and ')}.`;
+          note.hidden = false;
+        }
       }
     })();
   </script>

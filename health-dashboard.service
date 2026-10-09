@@ -1,14 +1,18 @@
 [Unit]
 Description=Health Dashboard Server
-After=network-online.target
-Wants=network-online.target
+# No After=/Wants=network-online.target: that target doesn't exist in the user
+# manager (it was a silent no-op), and the server only binds 127.0.0.1 anyway.
 
 [Service]
 Type=simple
 WorkingDirectory=/home/keo/repos/health-dashboard
 ExecStart=/usr/bin/python3 /home/keo/repos/health-dashboard/serve.py
-Restart=on-failure
+# always, not on-failure: also come back after a clean exit or a stray SIGTERM.
+Restart=always
 RestartSec=5
+# One thread per request; cap them so a connection flood can't exhaust the
+# user's process limit. serve.py sheds connections over the cap and keeps going.
+TasksMax=256
 StandardOutput=journal
 StandardError=journal
 
