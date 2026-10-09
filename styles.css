@@ -192,9 +192,20 @@ main {
   min-height: 1em;
 }
 
-canvas {
-  width: 100% !important;
-  height: 280px !important;
+/* Each canvas sits alone in a fixed-height box and Chart.js sizes the canvas
+   to that box. (The old `canvas { height: 280px !important }` overrode the
+   height Chart.js had laid out for — the whole card, ~321px — so every chart
+   was drawn squashed ~13%.) The canvas is taken out of flow so its pixel size
+   can never prop the box or the grid track open when the window narrows. */
+.chart-box {
+  position: relative;
+  height: 280px;
+}
+
+.chart-box canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 /* Loading skeleton animation */
@@ -291,6 +302,9 @@ canvas {
   background: var(--bg);
   padding: 1.25rem 1.5rem;
   overflow: hidden;
+  /* column flex: the chart box takes whatever the title + meta rows leave */
+  display: flex;
+  flex-direction: column;
 }
 .chart-card.expanded .expand-btn { display: none; }
 .chart-card.expanded .expand-close {
@@ -298,8 +312,10 @@ canvas {
   top: 1rem;
   right: 1.25rem;
 }
-.chart-card.expanded canvas {
-  height: calc(100vh - 6rem) !important;
+.chart-card.expanded .chart-box {
+  flex: 1;
+  min-height: 0;
+  height: auto;
 }
 /* keep the right-aligned "updated" meta clear of the ✕ close button */
 .chart-card.expanded .chart-meta { padding-right: 3.5rem; }

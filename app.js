@@ -36,6 +36,62 @@ const EVENTS = [
   // { date: '2026-03-15', label: 'Cut start',  scope: 'body' },
 ];
 
+// Lift-chart roster: canvas id → [exercise (as normalized by workout_sync.py),
+// legend label, PR-star label, color, history start]. Retired lifts stay —
+// they're history. When the programme changes add a row here; each card's
+// "N of M lifts active" chip is what gives a stale roster away.
+// Machine/cable loads aren't comparable across gyms, so those lifts clip their
+// history to GYM_START (the current gym).
+const GYM_START = '2026-01-01';
+const LIFT_CHARTS = {
+  upperMachineChart: [
+    ['chest press', 'Chest Press', 'Chest', 'red', GYM_START],
+    ['incline press', 'Incline Press', 'Incline', 'green', GYM_START],
+    ['row machine', 'Row Machine', 'Row', 'blue', GYM_START],
+    ['cable row', 'Cable Row', 'Cable Row', 'yellow', GYM_START],
+    ['dips machine', 'Dips (machine)', 'Dips M', 'orange', GYM_START],
+    ['dips weighted', 'Dips (weighted)', 'Dips W', 'purple', GYM_START],
+  ],
+  upperDBChart: [
+    ['lateral raise', 'Lat Raise', 'Lat Raise', 'green'],
+    ['hammer curl', 'Hammer Curls', 'Hammer', 'yellow'],
+    ['kelso shrugs', 'Kelso Shrugs', 'Shrug', 'blue'],
+    ['row db', 'DB Row', 'DB Row', 'red'],
+    ['wrist curls', 'Wrist Curls', 'Wrist Curl', 'purple'],
+    ['wrist extensions', 'Wrist Extensions', 'Wrist Ext', 'orange'],
+    ['turkish getups', 'Turkish Get-ups', 'TGU', 'cyan'],
+  ],
+  lowerLegsChart: [
+    ['leg press', 'Leg Press', 'Leg Press', 'purple', GYM_START],
+    ['leg curl', 'Leg Curl (unilateral)', 'Leg Curl', 'blue', GYM_START],
+    ['leg extension', 'Leg Extension', 'Leg Ext', 'pink', GYM_START],
+    ['calf raise seated', 'Calf Raise (seated)', 'Calf', 'yellow'],
+    ['leg press explosive', 'Leg Press (explosive)', 'Explosive', 'orange', GYM_START],
+    ['tib machine', 'Tib Machine', 'Tib', 'green', GYM_START],
+  ],
+  lowerHipCoreChart: [
+    ['abductors', 'Abductors', 'Abd', 'orange', GYM_START],
+    ['adductors', 'Adductors', 'Add', 'red', GYM_START],
+    ['side bend', 'Side Bend', 'Side', 'green'],
+    ['ab machine', 'Ab Machine', 'Ab Mach', 'cyan'],
+    ['cable crunches', 'Cable Crunches', 'Crunch', 'blue', GYM_START],
+    ['cable wood chops', 'Cable Wood Chops', 'Wood Chop', 'yellow', GYM_START],
+    ['hyper extensions', 'Hyperextensions', 'Hyper', 'purple'],
+    ['decline sit ups weight on head', 'Decline Sit-ups (weighted)', 'Sit-up', 'pink'],
+  ],
+  lowerBBDBChart: [
+    ['rdl barbell', 'RDL Barbell', 'RDL BB', 'red'],
+    ['rdl dumbbell', 'RDL Dumbbell', 'RDL DB', 'yellow'],
+    ['rack pulls', 'Rack Pulls', 'Rack Pull', 'blue'],
+  ],
+};
+// The two hand-built lift charts (dual axis / weight-sized dots) — listed only
+// so applyChartMetadata() gives them the same staleness chip.
+const LIFT_CHART_EXTRA = {
+  bodyweightChart: ['pull ups', 'v ups', 'push ups', 'calf raise bw', 'dead hang', 'gripper', 'front lever'],
+  neckChart: ['neck extension', 'neck flexion'],
+};
+
 const GRID_COLOR = 'rgba(255,255,255,0.06)';
 const TICK_COLOR = '#8b8fa3';
 
@@ -61,10 +117,42 @@ function goalLineAnnotation(value, label, color = COLORS.yellow) {
   };
 }
 
+// ── Dates ───────────────────────────────────────────────────────────────
+// Row dates are civil "YYYY-MM-DD" strings, so everything here works in LOCAL
+// calendar days. toISOString() is UTC — already tomorrow after 19:00 CDT — and
+// new Date("YYYY-MM-DD") is UTC midnight (the previous evening here), so the
+// old ms/86400000 math called today's row "yesterday" every evening.
+
+/** Local calendar date as "YYYY-MM-DD". */
+function localISO(d = new Date()) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Civil-day index of a "YYYY-MM-DD" string. The difference of two is a whole
+ *  number of calendar days — no timezone or DST in it. */
+function dayNum(dateStr) {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  return Date.UTC(y, m - 1, d) / 86400000;
+}
+
+/** Calendar days from a row date to today (0 = today, 1 = yesterday). */
+function daysAgo(dateStr) {
+  return dayNum(localISO()) - dayNum(dateStr);
+}
+
+/** "YYYY-MM-DD" → "May 13" (with the year when it isn't this one). */
+function fmtDay(dateStr) {
+  const [y, m, d] = dateStr.slice(0, 10).split('-').map(Number);
+  const opts = { month: 'short', day: 'numeric' };
+  if (y !== new Date().getFullYear()) opts.year = 'numeric';
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', opts);
+}
+
 function isoDaysAgo(days) {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().split('T')[0];
+  return localISO(d);
 }
 
 /** Compute chart x-axis min for a preset key. `null` means "show all". */
@@ -133,13 +221,15 @@ function safeGetItem(key) {
 }
 const SAVED_RANGE = safeGetItem('range') || 'YTD';
 let currentRange = ['1M','3M','6M','YTD','1Y','All'].includes(SAVED_RANGE) ? SAVED_RANGE : 'YTD';
+// x-axis window shared by every chart. Both ends are recomputed on each rebuild
+// (see rebuildCharts) so a tab left open for days doesn't keep a stale window.
 let currentMin = rangeMin(currentRange);
+let currentMax = localISO();
 const allCharts = [];
 
 function relativeAgo(dateStr) {
   if (!dateStr) return '';
-  const d = new Date(dateStr);
-  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  const days = daysAgo(dateStr);
   if (days < 0) return '';
   if (days === 0) return 'today';
   if (days === 1) return 'yesterday';
@@ -148,7 +238,32 @@ function relativeAgo(dateStr) {
   return `${Math.floor(days/30)}mo ago`;
 }
 
-function setChartMeta(canvasId, latest, lastDate, goalNote) {
+/** A row keyed by week start covers that day + 6, so it's "this week" until 7
+ *  days after the key (weeks run Saturday→Friday). */
+function isCurrentWeek(weekStr) {
+  const days = daysAgo(weekStr);
+  return days >= 0 && days < 7;
+}
+
+/** relativeAgo for week-keyed rows. */
+function relativeWeek(weekStr) {
+  if (!weekStr) return '';
+  const days = daysAgo(weekStr);
+  if (days < 0) return '';
+  if (days < 7) return 'this wk';
+  if (days < 14) return 'last wk';
+  return relativeAgo(weekStr);
+}
+
+// Staleness thresholds for the "last updated" chip, in days since the data's
+// own date. Week-keyed rows get WEEK_SPAN days of grace (the row is still
+// being filled until the week ends).
+const STALE_AMBER_DAYS = 7;
+const STALE_RED_DAYS = 21;
+const WEEK_SPAN = 6;
+
+/** `weekly`: lastDate is a week-start key rather than a day. */
+function setChartMeta(canvasId, latest, lastDate, goalNote, { weekly = false } = {}) {
   const canvas = document.getElementById(canvasId);
   const card = canvas?.closest('.chart-card');
   if (!card) return;
@@ -158,11 +273,11 @@ function setChartMeta(canvasId, latest, lastDate, goalNote) {
     meta.className = 'chart-meta';
     card.querySelector('h2')?.after(meta);
   }
-  const ago = relativeAgo(lastDate);
+  const ago = weekly ? relativeWeek(lastDate) : relativeAgo(lastDate);
   // Staleness: flag metrics that haven't updated within their expected cadence
   // (catches a silently-broken sync — e.g. hr-recovery that's weeks behind).
-  const days = lastDate ? Math.floor((Date.now() - new Date(lastDate).getTime()) / 86400000) : -1;
-  const stale = days > 21 ? ' stale-red' : days > 7 ? ' stale-amber' : '';
+  const days = lastDate ? daysAgo(lastDate) - (weekly ? WEEK_SPAN : 0) : -1;
+  const stale = days > STALE_RED_DAYS ? ' stale-red' : days > STALE_AMBER_DAYS ? ' stale-amber' : '';
   meta.innerHTML =
     (latest ? `<span class="chart-latest">${latest}</span>` : '') +
     (goalNote ? `<span class="chart-goal">${goalNote}</span>` : '') +
@@ -172,9 +287,8 @@ function setChartMeta(canvasId, latest, lastDate, goalNote) {
 function updateRangeCaption() {
   const el = document.getElementById('rangeCaption');
   if (!el) return;
-  const today = new Date().toISOString().split('T')[0];
   el.textContent = currentMin
-    ? `Showing ${currentMin} → ${today} (${currentRange})`
+    ? `Showing ${currentMin} → ${currentMax} (${currentRange})`
     : `Showing all data (${currentRange})`;
 }
 
@@ -186,12 +300,16 @@ function fmtPace(minPerMi) {
   return `${m}:${String(s).padStart(2, '0')}/mi`;
 }
 
-/** Shared x-scale so every chart reads `currentMin` from one place. */
+/** Shared x-scale so every chart reads `currentMin`/`currentMax` from one place.
+ *  `max` is pinned to today: left to auto-fit, an axis ends at its last point,
+ *  so a series that stopped months ago looked current (and at 1M, with nothing
+ *  in range, collapsed to a blank one-day axis). */
 function xScale(timeUnit = 'month') {
   return {
     type: 'time',
     time: { unit: timeUnit },
     min: currentMin,
+    max: currentMax,
     grid: { color: GRID_COLOR },
     ticks: { color: TICK_COLOR },
   };
@@ -220,6 +338,15 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
           wheel: { enabled: true },
           pinch: { enabled: true },
           mode: 'xy',
+          // A bare wheel must scroll the page, not get swallowed by whichever
+          // chart is under the cursor: in the grid, wheel-zoom needs Ctrl (which
+          // is also what a trackpad pinch sends). The expanded full-page view
+          // has nothing to scroll, so a plain wheel zooms there. Returning false
+          // rejects the zoom before the plugin calls preventDefault. Checked
+          // per event rather than via wheel.modifierKey so it follows the card
+          // in and out of the expanded view without touching chart options.
+          onZoomStart: ({ chart, event }) => event.type !== 'wheel' || event.ctrlKey
+            || chart.canvas.closest('.chart-card.expanded') != null,
         },
         pan: {
           enabled: true,
@@ -289,10 +416,14 @@ function linearTrendline(points) {
   ];
 }
 
-/** Compute N-point moving average for a dataset */
-function computeMA(data, key, window) {
+/** Trailing moving average over the last `days` CALENDAR days (rows must be
+ *  date-ascending). A sample-count window isn't a "30-day" MA: these series
+ *  have gaps, so the last 30 rows can reach back well past 30 days. */
+function computeMA(data, key, days) {
+  const nums = data.map(d => dayNum(d.date));
+  let start = 0;
   return data.map((d, i) => {
-    const start = Math.max(0, i - window + 1);
+    while (nums[i] - nums[start] >= days) start++;
     // Skip nulls: a null coerces to 0 in the sum but still counts in the
     // denominator, dragging the average toward zero (hrv/vo2 aren't NULL-filtered
     // server-side). A window with no real values yields y:null (a gap, not 0).
@@ -401,8 +532,9 @@ const Crosshair = {
 function showCardError(msg) {
   document.querySelectorAll('.chart-card.loading').forEach(card => {
     card.classList.remove('loading');
-    const canvas = card.querySelector('canvas');
-    if (canvas) canvas.style.display = 'none';
+    // Hide the fixed-height box, not just the canvas, so the card shrinks to the message.
+    const box = card.querySelector('.chart-box');
+    if (box) box.style.display = 'none';
     if (!card.querySelector('.card-error')) {
       const p = document.createElement('p');
       p.className = 'card-error';
@@ -450,8 +582,8 @@ async function rebuildCharts(initial = false) {
   // Guard against overlapping rebuilds — the 6h interval can coincide with a
   // visibilitychange, and two concurrent runs would each call new Chart() on a
   // canvas the other still holds → "Canvas already in use", corrupting state.
-  // Released in the populate frame below (and on load failure), once the new
-  // charts are live and tracked in allCharts.
+  // Released in populate() below (and on load failure), once the new charts
+  // are live and tracked in allCharts.
   if (_refreshing) return;
   _refreshing = true;
 
@@ -464,7 +596,18 @@ async function rebuildCharts(initial = false) {
     _refreshing = false;
     return;
   }
-  _lastRefresh = Date.now();
+  // Only a clean load counts as a refresh. loadAllData() never rejects on a
+  // failed fetch (it substitutes that endpoint's last good response), so with
+  // any endpoint down clear the stamp: the next visibilitychange then retries
+  // instead of waiting out the 1–6 h refresh timers. (Cleared rather than left
+  // alone — a 6h tick can fail minutes after a good refresh stamped it.)
+  _lastRefresh = data.failed.length ? 0 : Date.now();
+  if (!initial && !data.loaded) {
+    // Nothing answered (offline / server down): there is nothing new to draw,
+    // so keep the charts exactly as they are, zoom state included.
+    _refreshing = false;
+    return;
+  }
 
   try {
   // Tear down existing charts only AFTER a successful load, so a failed refresh
@@ -474,6 +617,12 @@ async function rebuildCharts(initial = false) {
   for (const c of allCharts) c.destroy();
   allCharts.length = 0;
   const pending = [];
+
+  // Re-anchor the x-axis window to today: a tab that has been open for days
+  // would otherwise keep the range it computed at page load.
+  currentMin = rangeMin(currentRange);
+  currentMax = localISO();
+  updateRangeCaption();
 
   // Event annotations: DEXA scan dates auto-seed body charts; EVENTS array adds user events per scope.
   // (DEXA auto-injection removed — was noise; DEXA points already show as green diamonds on body-fat chart.)
@@ -518,9 +667,11 @@ async function rebuildCharts(initial = false) {
   // 2. Body Fat
   (() => {
     const opts = baseOptions({ showLegend: true, yLabel: '%' });
+    // The goal is a DEXA number (see GOALS) — say so, since the Renpho and Navy
+    // lines it crosses are on their own scales.
     opts.plugins.annotation = {
       annotations: GOALS.bodyFatPct != null
-        ? { target: goalLineAnnotation(GOALS.bodyFatPct, `target ${GOALS.bodyFatPct}%`, COLORS.yellow) }
+        ? { target: goalLineAnnotation(GOALS.bodyFatPct, `goal ${GOALS.bodyFatPct}% (DEXA scale)`, COLORS.yellow) }
         : {},
     };
     mergeAnnotations(opts, bodyEventAnno);
@@ -669,7 +820,8 @@ async function rebuildCharts(initial = false) {
   // 5. HRV
   (() => {
     const opts = baseOptions({ showLegend: true, yLabel: 'ms' });
-    const recentHRV = (data.hrv || []).slice(-90).map(d => d.hrv).filter(v => v != null);
+    // Last 90 calendar days, not the last 90 readings (HRV has missing nights).
+    const recentHRV = (data.hrv || []).filter(d => d.hrv != null && daysAgo(d.date) < 90).map(d => d.hrv);
     const hrvBaseline = recentHRV.length
       ? Math.round(recentHRV.reduce((a, b) => a + b, 0) / recentHRV.length)
       : null;
@@ -769,6 +921,9 @@ async function rebuildCharts(initial = false) {
 
   // 9. Weekly Mileage (bar + trendline)
   const mileagePoints = data.runs.weeklyMileage.map(d => ({ x: d.week, y: d.miles }));
+  // Fit the trend to completed weeks only: the in-progress week is a partial
+  // total and would drag the line down until Friday.
+  const mileageTrendPoints = mileagePoints.filter(p => !isCurrentWeek(p.x));
   (() => {
     const opts = baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' });
     mergeAnnotations(opts, runningEventAnno);
@@ -781,7 +936,7 @@ async function rebuildCharts(initial = false) {
         borderWidth: 1,
         borderRadius: 3,
       },
-      { ...trendline('mileage', mileagePoints, COLORS.green), label: 'Trend', type: 'line' },
+      { ...trendline('mileage', mileageTrendPoints, COLORS.green), label: 'Trend', type: 'line' },
     ], opts));
   })();
 
@@ -925,13 +1080,13 @@ async function rebuildCharts(initial = false) {
     ], opts));
   })();
 
-  // 12-14. Combined exercise progression charts
-  // Machine exercises: filter to 2026+ (new gym)
-  const GYM_START = '2026-01-01';
-  const REPS_ONLY = ['pull ups', 'push ups', 'dips', 'v ups', 'calf raise bw', 'neck extension', 'neck flexion'];
+  // 12-17. Combined exercise progression charts (roster: LIFT_CHARTS)
+  const REPS_ONLY = ['pull ups', 'push ups', 'dips', 'v ups', 'calf raise bw', 'neck extension', 'neck flexion', 'front lever'];
   function exerciseY(exercise, { weight, reps, maxReps }) {
     if (REPS_ONLY.includes(exercise)) return maxReps ?? reps;
-    if (exercise === 'dead hang') return reps;
+    // Dead hang logs seconds as reps. Gripper's "weight" is its level (1–2.5),
+    // not lbs, so chart the reps closed at the top level.
+    if (exercise === 'dead hang' || exercise === 'gripper') return reps;
     return weight;
   }
   function liftData(exercise, filterDate) {
@@ -942,10 +1097,14 @@ async function rebuildCharts(initial = false) {
       .filter(p => p.y != null && p.y > 0);
   }
   /**
-   * Build a Chart.js annotation pair (star + label) at the heaviest-weight
-   * point in a lift series. Returns a flat object with two entries keyed by
-   * the slugified exercise name, suitable for Object.assign-ing into a
-   * chart's annotations dict.
+   * Build a Chart.js annotation pair (star + label) at the best point in a
+   * lift series. Returns a flat object with two entries keyed by the
+   * slugified exercise name, suitable for Object.assign-ing into a chart's
+   * annotations dict.
+   *
+   * For weight lifts pass EVERY set (setsScatter(…).data), not the weekly line:
+   * the line only carries each week's heaviest set, and the best e1RM can be a
+   * lighter set that week (RDL DB 315×12 → 441 sat under a 365×5 → 426 top set).
    *
    * IMPORTANT: chartjs-plugin-annotation@3 does NOT honor a `label` sub-option
    * on `type: 'point'` — labels must be their own `type: 'label'` annotation.
@@ -973,6 +1132,28 @@ async function rebuildCharts(initial = false) {
     const valueText = rankBy === 'weight' && top.weight != null
       ? `${label} ${Math.round(top.weight)}${top.reps ? '×' + top.reps : ''}`
       : label;
+    // A PR in the first or the latest week puts the star on a plot edge, where a
+    // centred label is clipped to "/ 225×14". Anchor the label inward (and drop
+    // it below a star at the very top). Scriptable, so it follows zoom/pan.
+    const EDGE_PX = 60;
+    const starX = (chart) => chart.scales.x.getPixelForValue(chart.scales.x.parse(top.x));
+    const labelAnchor = ({ chart }) => {
+      if (!chart.scales?.x || !chart.chartArea) return 'center';
+      const px = starX(chart);
+      const { left, right } = chart.chartArea;
+      return { x: px > right - EDGE_PX ? 'end' : px < left + EDGE_PX ? 'start' : 'center', y: 'center' };
+    };
+    // No label for a star that's outside the visible range (a stub of it used to poke in).
+    const labelVisible = ({ chart }) => {
+      if (!chart.scales?.x || !chart.chartArea) return true;
+      const px = starX(chart);
+      return px >= chart.chartArea.left && px <= chart.chartArea.right;
+    };
+    const labelLift = ({ chart }) => {
+      const ys = chart.scales?.y;
+      if (!ys || !chart.chartArea) return -18;
+      return ys.getPixelForValue(top.y) < chart.chartArea.top + 30 ? 18 : -18;
+    };
     return {
       [`${id}_pt`]: {
         type: 'point',
@@ -996,7 +1177,9 @@ async function rebuildCharts(initial = false) {
         borderRadius: 4,
         padding: 4,
         font: { size: 10, weight: 'bold' },
-        yAdjust: -18,
+        display: labelVisible,
+        position: labelAnchor,
+        yAdjust: labelLift,
       },
     };
   }
@@ -1082,132 +1265,30 @@ async function rebuildCharts(initial = false) {
     pink: 'rgba(255,107,203,0.3)',
   };
 
-  // 12. Upper Body Machines (Chest Press + Incline Press + Row Machine + Cable Row + Dips Machine + Dips Weighted)
-  const chestData = liftData('chest press', GYM_START);
-  const inclineData = liftData('incline press', GYM_START);
-  const rowData = liftData('row machine', GYM_START);
-  const cableRowData = liftData('cable row', GYM_START);
-  const dipsMachineData = liftData('dips machine', GYM_START);
-  const dipsWeightedData = liftData('dips weighted', GYM_START);
-  const upperMachineAnno = compactAnnotations({
-    chestPR: prAnnotation(chestData, 'Chest'),
-    inclinePR: prAnnotation(inclineData, 'Incline'),
-    rowPR: prAnnotation(rowData, 'Row'),
-    cableRowPR: prAnnotation(cableRowData, 'Cable Row'),
-    dipsMachinePR: prAnnotation(dipsMachineData, 'Dips M'),
-    dipsWeightedPR: prAnnotation(dipsWeightedData, 'Dips W'),
-  });
-  pending.push(createChart('upperMachineChart', 'line', [
-    setsScatter('chest press', FADED.red, GYM_START),
-    setsScatter('incline press', FADED.green, GYM_START),
-    setsScatter('row machine', FADED.blue, GYM_START),
-    setsScatter('cable row', FADED.yellow, GYM_START),
-    setsScatter('dips machine', FADED.orange, GYM_START),
-    setsScatter('dips weighted', FADED.purple, GYM_START),
-    { label: 'Chest Press', data: chestData, ...liftDefaults(COLORS.red) },
-    trendline('chest', chestData, FADED.red),
-    { label: 'Incline Press', data: inclineData, ...liftDefaults(COLORS.green) },
-    trendline('incline', inclineData, FADED.green),
-    { label: 'Row Machine', data: rowData, ...liftDefaults(COLORS.blue) },
-    trendline('row', rowData, FADED.blue),
-    { label: 'Cable Row', data: cableRowData, ...liftDefaults(COLORS.yellow) },
-    trendline('cableRow', cableRowData, FADED.yellow),
-    { label: 'Dips (machine)', data: dipsMachineData, ...liftDefaults(COLORS.orange) },
-    trendline('dipsMachine', dipsMachineData, FADED.orange),
-    { label: 'Dips (weighted)', data: dipsWeightedData, ...liftDefaults(COLORS.purple) },
-    trendline('dipsWeighted', dipsWeightedData, FADED.purple),
-  ], liftOpts('lbs', upperMachineAnno)));
+  // 12–15. Weight-progression charts, one per LIFT_CHARTS entry (Upper Body
+  // Machines, Upper Body DB, Lower Body — Legs, — Hip/Core, BB/DB): every set
+  // as a faint scatter underneath, then each lift's weekly top-weight line +
+  // trendline, and a PR star.
+  for (const [canvasId, roster] of Object.entries(LIFT_CHARTS)) {
+    const series = roster.map(([exercise, label, prLabel, color, since]) => {
+      const points = liftData(exercise, since);
+      const scatter = setsScatter(exercise, FADED[color], since);
+      return {
+        scatter,
+        line: { label, data: points, ...liftDefaults(COLORS[color]) },
+        trend: trendline(exercise, points, FADED[color]),
+        // Rank the PR over every set; the weekly top sets are only a fallback
+        // for when /api/workout-sets came back empty.
+        pr: prAnnotation(scatter.data.length ? scatter.data : points, prLabel),
+      };
+    });
+    pending.push(createChart(canvasId, 'line', [
+      ...series.map(s => s.scatter),
+      ...series.flatMap(s => [s.line, s.trend]),
+    ], liftOpts('lbs', compactAnnotations(series.map(s => s.pr)))));
+  }
 
-  // 13. Upper Body DB (Lat Raise, Hammer Curls, Kelso Shrugs)
-  const latData = liftData('lateral raise');
-  const curlData = liftData('hammer curl');
-  const shrugData = liftData('kelso shrugs');
-  const upperDBAnno = compactAnnotations({
-    latPR: prAnnotation(latData, 'Lat Raise'),
-    curlPR: prAnnotation(curlData, 'Hammer'),
-    shrugPR: prAnnotation(shrugData, 'Shrug'),
-  });
-  pending.push(createChart('upperDBChart', 'line', [
-    setsScatter('lateral raise', FADED.green),
-    setsScatter('hammer curl', FADED.yellow),
-    setsScatter('kelso shrugs', FADED.blue),
-    { label: 'Lat Raise', data: latData, ...liftDefaults(COLORS.green) },
-    trendline('lat', latData, FADED.green),
-    { label: 'Hammer Curls', data: curlData, ...liftDefaults(COLORS.yellow) },
-    trendline('curl', curlData, FADED.yellow),
-    { label: 'Kelso Shrugs', data: shrugData, ...liftDefaults(COLORS.blue) },
-    trendline('shrug', shrugData, FADED.blue),
-  ], liftOpts('lbs', upperDBAnno)));
-
-  // 14a. Lower Body — Legs (Leg Press, Leg Curl, Leg Extension, Calf Raise)
-  const legData = liftData('leg press', GYM_START);
-  const legCurlData = liftData('leg curl', GYM_START);
-  const legExtData = liftData('leg extension', GYM_START);
-  const calfData = liftData('calf raise seated');
-  const lowerLegsAnno = compactAnnotations({
-    legPR: prAnnotation(legData, 'Leg Press'),
-    legCurlPR: prAnnotation(legCurlData, 'Leg Curl'),
-    legExtPR: prAnnotation(legExtData, 'Leg Ext'),
-    calfPR: prAnnotation(calfData, 'Calf'),
-  });
-  pending.push(createChart('lowerLegsChart', 'line', [
-    setsScatter('leg press', FADED.purple, GYM_START),
-    setsScatter('leg curl', FADED.blue, GYM_START),
-    setsScatter('leg extension', FADED.pink, GYM_START),
-    setsScatter('calf raise seated', FADED.yellow),
-    { label: 'Leg Press', data: legData, ...liftDefaults(COLORS.purple) },
-    trendline('leg', legData, FADED.purple),
-    { label: 'Leg Curl (unilateral)', data: legCurlData, ...liftDefaults(COLORS.blue) },
-    trendline('legCurl', legCurlData, FADED.blue),
-    { label: 'Leg Extension', data: legExtData, ...liftDefaults(COLORS.pink) },
-    trendline('legExt', legExtData, FADED.pink),
-    { label: 'Calf Raise (seated)', data: calfData, ...liftDefaults(COLORS.yellow) },
-    trendline('calf', calfData, FADED.yellow),
-  ], liftOpts('lbs', lowerLegsAnno)));
-
-  // 14b. Lower Body — Hip / Core (Abductors, Adductors, Side Bend, Ab Machine)
-  const abdData = liftData('abductors', GYM_START);
-  const addData = liftData('adductors', GYM_START);
-  const sideData = liftData('side bend');
-  const abMachineData = liftData('ab machine');
-  const lowerHipCoreAnno = compactAnnotations({
-    abdPR: prAnnotation(abdData, 'Abd'),
-    addPR: prAnnotation(addData, 'Add'),
-    sidePR: prAnnotation(sideData, 'Side'),
-    abMachinePR: prAnnotation(abMachineData, 'Ab Mach'),
-  });
-  pending.push(createChart('lowerHipCoreChart', 'line', [
-    setsScatter('abductors', FADED.orange, GYM_START),
-    setsScatter('adductors', FADED.red, GYM_START),
-    setsScatter('side bend', FADED.green),
-    setsScatter('ab machine', FADED.cyan),
-    { label: 'Abductors', data: abdData, ...liftDefaults(COLORS.orange) },
-    trendline('abd', abdData, FADED.orange),
-    { label: 'Adductors', data: addData, ...liftDefaults(COLORS.red) },
-    trendline('add', addData, FADED.red),
-    { label: 'Side Bend', data: sideData, ...liftDefaults(COLORS.green) },
-    trendline('side', sideData, FADED.green),
-    { label: 'Ab Machine', data: abMachineData, ...liftDefaults(COLORS.cyan) },
-    trendline('abMachine', abMachineData, FADED.cyan),
-  ], liftOpts('lbs', lowerHipCoreAnno)));
-
-  // 15. Lower Body BB/DB (RDL Barbell + RDL Dumbbell)
-  const rdlBBData = liftData('rdl barbell');
-  const rdlDBData = liftData('rdl dumbbell');
-  const lowerBBDBAnno = compactAnnotations({
-    rdlBBPR: prAnnotation(rdlBBData, 'RDL BB'),
-    rdlDBPR: prAnnotation(rdlDBData, 'RDL DB'),
-  });
-  pending.push(createChart('lowerBBDBChart', 'line', [
-    setsScatter('rdl barbell', FADED.red),
-    setsScatter('rdl dumbbell', FADED.yellow),
-    { label: 'RDL Barbell', data: rdlBBData, ...liftDefaults(COLORS.red) },
-    trendline('rdlBB', rdlBBData, FADED.red),
-    { label: 'RDL Dumbbell', data: rdlDBData, ...liftDefaults(COLORS.yellow) },
-    trendline('rdlDB', rdlDBData, FADED.yellow),
-  ], liftOpts('lbs', lowerBBDBAnno)));
-
-  // 16. Bodyweight (Pull-ups, V-ups, Push-ups, Calf Raise + Dead Hang seconds on right axis)
+  // 16. Bodyweight (Pull-ups, V-ups, Push-ups, Calf Raise, Gripper, Front Lever + Dead Hang seconds on right axis)
   const pullData = liftData('pull ups');
   // Bodyweight 'dips' is always logged weighted (0 rows under 'dips' — they live
   // on the Upper Body Machines chart); v-ups (36 sessions) previously had no chart.
@@ -1215,11 +1296,17 @@ async function rebuildCharts(initial = false) {
   const pushData = liftData('push ups');
   const calfBWData = liftData('calf raise bw');
   const hangData = liftData('dead hang');
+  // Not bodyweight moves, but both are rep-counted and belong on a reps axis
+  // rather than a lbs one (gripper "weight" is its level; see exerciseY).
+  const gripData = liftData('gripper');
+  const leverData = liftData('front lever');
   pending.push(createChart('bodyweightChart', 'line', [
     { ...setsScatter('pull ups', FADED.green), yAxisID: 'y' },
     { ...setsScatter('v ups', FADED.yellow), yAxisID: 'y' },
     { ...setsScatter('push ups', FADED.red), yAxisID: 'y' },
     { ...setsScatter('calf raise bw', FADED.purple), yAxisID: 'y' },
+    { ...setsScatter('gripper', FADED.orange), yAxisID: 'y' },
+    { ...setsScatter('front lever', FADED.cyan), yAxisID: 'y' },
     { ...setsScatter('dead hang', FADED.blue), yAxisID: 'y1' },
     { label: 'Pull-ups', data: pullData, ...lineDefaults(COLORS.green), yAxisID: 'y' },
     { ...trendline('pull', pullData, FADED.green), yAxisID: 'y' },
@@ -1229,12 +1316,21 @@ async function rebuildCharts(initial = false) {
     { ...trendline('push', pushData, FADED.red), yAxisID: 'y' },
     { label: 'Calf Raise', data: calfBWData, ...lineDefaults(COLORS.purple), yAxisID: 'y' },
     { ...trendline('calfBW', calfBWData, FADED.purple), yAxisID: 'y' },
+    // No gripper trendline: reps reset every time the gripper level goes up,
+    // so a fitted line would read progress as decline.
+    { label: 'Gripper', data: gripData, ...lineDefaults(COLORS.orange), yAxisID: 'y' },
+    { label: 'Front Lever', data: leverData, ...lineDefaults(COLORS.cyan), yAxisID: 'y' },
+    { ...trendline('lever', leverData, FADED.cyan), yAxisID: 'y' },
     { label: 'Dead Hang (s)', data: hangData, ...lineDefaults(COLORS.blue), yAxisID: 'y1' },
     { ...trendline('hang', hangData, FADED.blue), yAxisID: 'y1' },
   ], (() => {
     const opts = baseOptions({ showLegend: true, timeUnit: 'month' });
     opts.interaction = { mode: 'nearest', intersect: false };
     opts.plugins.legend.labels.filter = legendFilterTrend;
+    opts.plugins.tooltip.callbacks = {
+      // Gripper reps only mean something next to the level they were closed at.
+      afterLabel: (ctx) => ctx.dataset.label === 'Gripper' && ctx.raw?.weight ? `Level: ${ctx.raw.weight}` : '',
+    };
     // Dual y-axes — y-zoom is ambiguous, restrict to x.
     opts.plugins.zoom.zoom.mode = 'x';
     opts.plugins.zoom.pan.mode = 'x';
@@ -1369,7 +1465,7 @@ async function rebuildCharts(initial = false) {
   })();
 
   // Populate all charts simultaneously so animations start in sync
-  requestAnimationFrame(() => {
+  const populate = () => {
     try {
       for (const entry of pending) {
         if (!entry) continue;
@@ -1392,84 +1488,147 @@ async function rebuildCharts(initial = false) {
     } finally {
       _refreshing = false;
     }
-  });
+  };
+  // The first paint waits one frame so the empty chart frames are on screen
+  // before the data animates in. Refreshes don't animate, so they populate
+  // right here: rAF never fires in a hidden tab, and a refresh that began in
+  // one used to sit on 28 destroyed-and-empty charts with _refreshing held —
+  // every later refresh then no-op'd. (Same reason a hidden first load
+  // populates immediately.)
+  if (initial && !document.hidden) requestAnimationFrame(populate);
+  else populate();
   } catch (e) {
     // A synchronous throw during the ~750 lines of chart construction would
-    // otherwise leave _refreshing stuck true (the release lives in the rAF
-    // below), permanently blanking the page and no-op'ing every later refresh.
+    // otherwise leave _refreshing stuck true (the release lives in populate
+    // above), permanently blanking the page and no-op'ing every later refresh.
     console.error('Chart build failed:', e);
     _refreshing = false;
     if (initial) showCardError('Failed to render charts.');
   }
 }
 
-/** Inject latest-value + last-updated chip into chart card headers. */
+/** Most recent row with a real value for `key`. A sync gap can leave a trailing
+ *  row whose value is null — reading `.at(-1)` then rendered "HRV null ms". */
+function latestRow(rows, key) {
+  return rows?.findLast(r => r?.[key] != null);
+}
+
+/** "X to goal" given direction. lowerIsBetter: goal sits below current (weight,
+ *  BF, RHR); otherwise above (HRV, VO2, HR-recovery). */
+function goalGap(latest, goal, { unit = '', decimals = 1, lowerIsBetter = false } = {}) {
+  if (goal == null || latest == null) return '';
+  const gap = lowerIsBetter ? latest - goal : goal - latest;
+  if (gap <= 0) return '✓ at goal';
+  return `${gap.toFixed(decimals)}${unit ? ' ' + unit : ''} to goal`;
+}
+
+/** Body-fat goal gap, measured from the latest DEXA scan and labelled with its
+ *  date: "DEXA 15.8% (May 13) · 3.8 % to goal". The goal is on the DEXA scale
+ *  (see GOALS), so the Renpho reading can't be compared with it — with no scan
+ *  there is no gap to show. */
+function dexaGoalNote(data) {
+  const dx = latestRow(data.bodyFat?.dexa, 'dexa');
+  if (!dx) return '';
+  const gap = goalGap(dx.dexa, GOALS.bodyFatPct, { unit: '%', lowerIsBetter: true });
+  return `DEXA ${dx.dexa}% (${fmtDay(dx.date)})${gap ? ' · ' + gap : ''}`;
+}
+
+/** Inject latest-value + last-updated chip into chart card headers. Every chart
+ *  gets one, so a series that has stopped updating is flagged on its own card. */
 function applyChartMetadata(data) {
   const arrow = (delta) => delta > 0 ? '▲' : delta < 0 ? '▼' : '→';
   const signed = (v, d = 1) => `${arrow(v)}${Math.abs(v).toFixed(d)}`;
-  // "X to goal" given direction. lowerIsBetter: goal sits below current (weight,
-  // BF, RHR); otherwise above (HRV, VO2, HR-recovery).
-  const goalTag = (latest, goal, { unit = '', decimals = 1, lowerIsBetter = false } = {}) => {
-    if (goal == null || latest == null) return '';
-    const gap = lowerIsBetter ? latest - goal : goal - latest;
-    if (gap <= 0) return '✓ at goal';
-    return `${gap.toFixed(decimals)}${unit ? ' ' + unit : ''} to goal`;
-  };
+  const weekly = { weekly: true };
 
-  const w = data.weight?.at(-1);
-  if (w && w.weight != null) {
+  const w = latestRow(data.weight, 'weight');
+  if (w) {
     const vs30 = w.ma30 != null ? ` · ${signed(w.weight - w.ma30)} vs 30d` : '';
     setChartMeta('weightChart', `${w.weight.toFixed(1)} lb${vs30}`, w.date,
-      goalTag(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }));
+      goalGap(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }));
   }
 
-  const bf = data.bodyFat?.renpho?.at(-1);
-  if (bf) setChartMeta('bodyFatChart', `${bf.renpho}%`, bf.date,
-    goalTag(bf.renpho, GOALS.bodyFatPct, { unit: '%', lowerIsBetter: true }));
+  const bf = latestRow(data.bodyFat?.renpho, 'renpho');
+  if (bf) setChartMeta('bodyFatChart', `Renpho ${bf.renpho}%`, bf.date, dexaGoalNote(data));
 
-  const rhr = data.rhr?.at(-1);
+  // Tape measurements: chip on the latest row that has any of the chart's series.
+  const lastWithAny = (keys) => data.bodyMeasurements?.findLast(m => keys.some(k => m[k] != null));
+  const torso = lastWithAny(['stomach', 'waist', 'chest', 'hips', 'neck']);
+  if (torso) setChartMeta('measurementsChart', torso.stomach != null ? `${torso.stomach} in stomach` : '', torso.date);
+  const limb = lastWithAny(['right_bicep', 'right_forearm', 'right_quad', 'right_calf']);
+  if (limb) setChartMeta('limbChart', limb.right_bicep != null ? `${limb.right_bicep} in bicep` : '', limb.date);
+
+  const rhr = latestRow(data.rhr, 'rhr');
   if (rhr) setChartMeta('rhrChart', `${rhr.rhr} bpm`, rhr.date,
-    goalTag(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }));
+    goalGap(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }));
 
-  const hrv = data.hrv?.at(-1);
+  const hrv = latestRow(data.hrv, 'hrv');
   if (hrv) setChartMeta('hrvChart', `${hrv.hrv} ms`, hrv.date,
-    goalTag(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }));
+    goalGap(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }));
 
-  const vo2 = data.vo2max?.at(-1);
+  const vo2 = latestRow(data.vo2max, 'vo2max');
   if (vo2) setChartMeta('vo2maxChart', `${vo2.vo2max}`, vo2.date,
-    goalTag(vo2.vo2max, GOALS.vo2max, { decimals: 1 }));
+    goalGap(vo2.vo2max, GOALS.vo2max, { decimals: 1 }));
 
   const lastRun = data.runs?.all?.at(-1);
-  if (lastRun) setChartMeta('efChart', `${lastRun.distMi.toFixed(1)}mi · ${lastRun.avgHR}bpm`, lastRun.date);
+  if (lastRun) {
+    setChartMeta('efChart', `${lastRun.distMi.toFixed(1)}mi · ${lastRun.avgHR}bpm`, lastRun.date);
+    setChartMeta('trainingLogChart', `${lastRun.distMi.toFixed(1)} mi · ${fmtPace(lastRun.paceMinMi)}`, lastRun.date);
+  }
+
+  const fiveKLast = data.runs?.fiveK?.at(-1);
+  if (fiveKLast) setChartMeta('fiveKChart', `${fiveKLast.avgHR} bpm · ${fmtPace(fiveKLast.paceMinMi)}`, fiveKLast.date);
 
   const longLast = data.runs?.longRuns?.at(-1);
   if (longLast) setChartMeta('longRunChart', `${longLast.distMi.toFixed(1)} mi`, longLast.date);
 
-  const weekly = data.runs?.weeklyMileage?.at(-1);
-  if (weekly) setChartMeta('weeklyMileageChart', `${weekly.miles.toFixed(1)} mi this wk`, weekly.week);
+  // Week-keyed rows: the chip reads "this wk" only when the latest row IS this
+  // week; an older row is named by the week it actually covers.
+  const weekTag = (week) => isCurrentWeek(week) ? '' : ` · wk of ${fmtDay(week)}`;
 
-  const recoveryRows = data.hrRecovery || [];
-  const recLast = recoveryRows.at(-1);
+  const mileage = data.runs?.weeklyMileage?.at(-1);
+  if (mileage) setChartMeta('weeklyMileageChart', `${mileage.miles.toFixed(1)} mi${weekTag(mileage.week)}`, mileage.week, '', weekly);
+
+  const zones = data.zoneMinutes?.at(-1);
+  if (zones) {
+    const total = ['z1', 'z2', 'z3', 'z4', 'z5'].reduce((sum, k) => sum + (zones[k] || 0), 0);
+    setChartMeta('zoneMinutesChart', `${Math.round(total)} min${weekTag(zones.week)}`, zones.week, '', weekly);
+  }
+
+  const recLast = latestRow(data.hrRecovery, 'recovery');
   if (recLast) setChartMeta('hrRecoveryChart', `${recLast.recovery} bpm drop`, recLast.date,
-    goalTag(recLast.recovery, GOALS.hrRecovery60Bpm, { unit: 'bpm', decimals: 0 }));
+    goalGap(recLast.recovery, GOALS.hrRecovery60Bpm, { unit: 'bpm', decimals: 0 }));
 
-  const ltLast = data.lactateThreshold?.at(-1);
+  const ltLast = latestRow(data.lactateThreshold, 'lthr');
   if (ltLast) setChartMeta('ltChart',
     `${ltLast.lthr} bpm${ltLast.pace != null ? ' · ' + fmtPace(ltLast.pace) : ''}`, ltLast.date);
 
-  const volLast = data.workoutVolume?.at(-1);
-  if (volLast) setChartMeta('volumeChart', `${volLast.total_sets} sets · ${volLast.training_days} days`, volLast.week);
+  // training_days is deliberately not shown — see renderOverview.
+  const volLast = latestRow(data.workoutVolume, 'total_sets');
+  if (volLast) setChartMeta('volumeChart', `${volLast.total_sets} sets${weekTag(volLast.week)}`, volLast.week, '', weekly);
 
-  const sleepLast = data.sleep?.at(-1);
-  if (sleepLast) {
-    if (sleepLast.totalH != null) setChartMeta('sleepChart', `${sleepLast.totalH}h`, sleepLast.date);
-    if (sleepLast.score != null) setChartMeta('sleepScoreChart', `${sleepLast.score}`, sleepLast.date);
+  // Lift charts: dated by the most recently logged lift on the card, with how
+  // many of its lifts are still being trained (logged within the red-flag
+  // window) — retired lifts stay on these charts as history.
+  for (const [canvasId, exercises] of Object.entries({
+    ...Object.fromEntries(Object.entries(LIFT_CHARTS).map(([id, roster]) => [id, roster.map(r => r[0])])),
+    ...LIFT_CHART_EXTRA,
+  })) {
+    const lastWeeks = exercises.map(ex => data.liftProgression?.[ex]?.at(-1)?.date).filter(Boolean);
+    if (!lastWeeks.length) continue;
+    const newest = lastWeeks.reduce((a, b) => (a > b ? a : b));
+    const active = lastWeeks.filter(wk => daysAgo(wk) - WEEK_SPAN <= STALE_RED_DAYS).length;
+    setChartMeta(canvasId, `${active} of ${exercises.length} lifts active`, newest, '', weekly);
   }
-  const stepsLast = data.steps?.at(-1);
-  if (stepsLast && stepsLast.steps != null) setChartMeta('stepsChart', `${stepsLast.steps.toLocaleString()} steps`, stepsLast.date);
-  const stressLast = data.stress?.at(-1);
-  if (stressLast && stressLast.stress != null) setChartMeta('stressChart', `${stressLast.stress} avg`, stressLast.date);
-  const bbLast = data.bodyBattery?.at(-1);
+
+  const sleepDur = latestRow(data.sleep, 'totalH');
+  if (sleepDur) setChartMeta('sleepChart', `${sleepDur.totalH}h`, sleepDur.date);
+  const sleepScore = latestRow(data.sleep, 'score');
+  if (sleepScore) setChartMeta('sleepScoreChart', `${sleepScore.score}`, sleepScore.date);
+  const stepsLast = latestRow(data.steps, 'steps');
+  if (stepsLast) setChartMeta('stepsChart', `${stepsLast.steps.toLocaleString()} steps`, stepsLast.date);
+  const stressLast = latestRow(data.stress, 'stress');
+  if (stressLast) setChartMeta('stressChart', `${stressLast.stress} avg`, stressLast.date);
+  const bbLast = data.bodyBattery?.findLast(d => d.low != null && d.high != null);
   if (bbLast) setChartMeta('bodyBatteryChart', `${bbLast.low}–${bbLast.high}`, bbLast.date);
 }
 
@@ -1483,32 +1642,45 @@ function renderOverview(data) {
     `<div class="kpi"><div class="kpi-label">${label}</div>` +
     `<div class="kpi-value">${value}</div>` +
     (sub ? `<div class="kpi-sub">${sub}</div>` : '') + '</div>');
-  const gap = (latest, goal, lower, unit, dec = 1) => {
-    if (latest == null || goal == null) return '';
-    const g = lower ? latest - goal : goal - latest;
-    return g <= 0 ? '✓ at goal' : `${g.toFixed(dec)}${unit ? ' ' + unit : ''} to goal`;
-  };
 
-  const w = data.weight?.at(-1);
-  if (w && w.weight != null) add('Weight', `${w.weight.toFixed(1)} lb`, gap(w.weight, GOALS.weightLbs, true, 'lb'));
-  const bf = data.bodyFat?.renpho?.at(-1);
-  if (bf) add('Body Fat', `${bf.renpho}%`, gap(bf.renpho, GOALS.bodyFatPct, true, '%'));
-  const rhr = data.rhr?.at(-1);
-  if (rhr) add('Resting HR', `${rhr.rhr} bpm`, gap(rhr.rhr, GOALS.rhrBpm, true, 'bpm', 0));
-  const hrv = data.hrv?.at(-1);
-  if (hrv) add('HRV', `${hrv.hrv} ms`, gap(hrv.hrv, GOALS.hrvMs, false, 'ms', 0));
-  const vo2 = data.vo2max?.at(-1);
-  if (vo2) add('VO2 Max', `${vo2.vo2max}`, gap(vo2.vo2max, GOALS.vo2max, false, '', 1));
-  const lt = data.lactateThreshold?.at(-1);
+  // latestRow() throughout: a card is only rendered from a row that has a value.
+  const w = latestRow(data.weight, 'weight');
+  if (w) add('Weight', `${w.weight.toFixed(1)} lb`, goalGap(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }));
+  // Headline is the daily Renpho reading (falling back to the scan itself);
+  // the goal gap underneath is DEXA-only — see dexaGoalNote.
+  const bf = latestRow(data.bodyFat?.renpho, 'renpho');
+  const dexa = latestRow(data.bodyFat?.dexa, 'dexa');
+  if (bf || dexa) add('Body Fat', `${bf ? bf.renpho : dexa.dexa}%`, dexaGoalNote(data));
+  const rhr = latestRow(data.rhr, 'rhr');
+  if (rhr) add('Resting HR', `${rhr.rhr} bpm`, goalGap(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }));
+  const hrv = latestRow(data.hrv, 'hrv');
+  if (hrv) add('HRV', `${hrv.hrv} ms`, goalGap(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }));
+  const vo2 = latestRow(data.vo2max, 'vo2max');
+  if (vo2) add('VO2 Max', `${vo2.vo2max}`, goalGap(vo2.vo2max, GOALS.vo2max, { decimals: 1 }));
+  const lt = latestRow(data.lactateThreshold, 'lthr');
   if (lt) add('Lactate Threshold', `${lt.lthr} bpm`, lt.pace != null ? `${fmtPace(lt.pace)} pace` : '');
   const run = data.runs?.all?.at(-1);
   if (run) add('Last Run', `${run.distMi.toFixed(1)} mi`, `${fmtPace(run.paceMinMi)} · ${relativeAgo(run.date)}`);
-  const vol = data.workoutVolume?.at(-1);
-  if (vol) add('This Week', `${vol.total_sets} sets`, `${vol.training_days} training days`);
-  const sl = data.sleep?.at(-1);
-  if (sl && sl.score != null) add('Sleep', `${sl.score}`, `${sl.totalH}h last night`);
-  const stp = data.steps?.at(-1);
-  if (stp && stp.steps != null) add('Steps', stp.steps.toLocaleString(), stp.step_goal != null ? `goal ${stp.step_goal.toLocaleString()}` : '');
+  // Labelled "This Week" only when the latest row is this week; otherwise by
+  // the week it actually is. No training-day count: workout_weeks.training_days
+  // only ever holds 0/5/6/7 (it read "7 training days" on day 5 of a week) and
+  // nothing per-day reaches the client to derive it from — the sets/lift
+  // endpoints are week-level. Put it back once workout_sync.py writes real values.
+  const vol = latestRow(data.workoutVolume, 'total_sets');
+  if (vol) {
+    const current = isCurrentWeek(vol.week);
+    add(current ? 'This Week' : `Week of ${fmtDay(vol.week)}`, `${vol.total_sets} sets`,
+      current ? `wk of ${fmtDay(vol.week)}` : relativeWeek(vol.week));
+  }
+  // Sleep rows are keyed by wake-up date, so only today's row is "last night".
+  const sl = latestRow(data.sleep, 'score');
+  if (sl) {
+    const nights = daysAgo(sl.date);
+    const when = nights === 0 ? 'last night' : nights === 1 ? '2 nights ago' : fmtDay(sl.date);
+    add('Sleep', `${sl.score}`, `${sl.totalH != null ? sl.totalH + 'h · ' : ''}${when}`);
+  }
+  const stp = latestRow(data.steps, 'steps');
+  if (stp) add('Steps', stp.steps.toLocaleString(), stp.step_goal != null ? `goal ${stp.step_goal.toLocaleString()}` : '');
 
   grid.innerHTML = cards.join('') || '<p class="card-error">No data yet.</p>';
 }
@@ -1522,14 +1694,20 @@ function setupAutoRefresh() {
       rebuildCharts();
     }
   });
-  setInterval(() => { rebuildCharts(); }, 21600000);
+  // The 6h tick is for a tab left open and visible. A hidden tab skips it —
+  // nobody is looking, and the visibilitychange above refreshes on return.
+  setInterval(() => { if (!document.hidden) rebuildCharts(); }, 21600000);
 }
 
 const PAGES = ['overview', 'body', 'sleep', 'daily', 'running', 'lifts'];
 let _expandedCanvasId = null;
+let _closingExpanded = false;  // a history.back() from closeExpanded() is in flight
 
 function wirePageRouter() {
   window.addEventListener('hashchange', applyRoute);
+  // Clear the close-in-flight latch on any traversal, even one that lands on
+  // the same hash (no hashchange) — otherwise Esc/✕ would stay dead.
+  window.addEventListener('popstate', () => { _closingExpanded = false; });
   applyRoute();
 }
 
@@ -1555,6 +1733,7 @@ function activatePage(target) {
 /** Route off #hash: `#chart/<canvasId>` expands one chart full-page (deep-linkable,
  *  back-button closes it); anything else is a normal page route. */
 function applyRoute() {
+  _closingExpanded = false;
   const m = location.hash.slice(1).match(/^chart\/(.+)$/);
   const canvas = m && document.getElementById(m[1]);
   if (canvas && canvas.closest('.chart-card')) {
@@ -1594,11 +1773,23 @@ function collapseChart() {
   if (chart) requestAnimationFrame(() => chart.resize());
 }
 
-/** Leave the expanded view by routing back to the chart's own page. */
+/** Leave the expanded view (Esc / ✕) without adding to history. Assigning
+ *  location.hash here pushed a third entry (page → chart → page), so Back
+ *  reopened the chart that was just closed. */
 function closeExpanded() {
+  // history.back() is async — a held Esc or a double click must not pop twice.
+  if (_closingExpanded) return;
+  if (history.state?.expanded) {
+    // Opened with ⤢: the expanded view is our own entry on top of the page's — pop it.
+    _closingExpanded = true;
+    history.back();
+    return;
+  }
+  // Deep-linked #chart/…: nothing of ours underneath, so swap this entry for
+  // the chart's page instead of popping out of the dashboard.
   const canvas = _expandedCanvasId && document.getElementById(_expandedCanvasId);
   const page = canvas?.closest('.page');
-  location.hash = page ? page.id.replace('page-', '') : '';
+  location.replace(`#${page ? page.id.replace('page-', '') : ''}`);
 }
 
 /** Inject an expand (⤢) and close (✕) control into each chart card, once.
@@ -1619,7 +1810,13 @@ function wireChartExpand() {
     expand.title = 'Expand';
     expand.setAttribute('aria-label', `Expand ${title}`);
     expand.textContent = '⤢';
-    expand.addEventListener('click', () => { location.hash = `chart/${canvas.id}`; });
+    // pushState rather than location.hash so the entry carries a marker that
+    // closeExpanded() can recognise as ours to pop (pushState fires no
+    // hashchange, hence the explicit applyRoute).
+    expand.addEventListener('click', () => {
+      history.pushState({ expanded: true }, '', `#chart/${canvas.id}`);
+      applyRoute();
+    });
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'expand-close';
@@ -1652,6 +1849,7 @@ function wireRangePresets() {
     if (!btn) return;
     currentRange = btn.dataset.range;
     currentMin = rangeMin(currentRange);
+    currentMax = localISO();
     try { localStorage.setItem('range', currentRange); } catch {}
     for (const b of container.querySelectorAll('button')) {
       const on = b === btn;
@@ -1663,6 +1861,7 @@ function wireRangePresets() {
       chart.resetZoom('none');
       if (currentMin == null) delete chart.options.scales.x.min;
       else chart.options.scales.x.min = currentMin;
+      chart.options.scales.x.max = currentMax;
       chart.update('none');
     }
     updateRangeCaption();
