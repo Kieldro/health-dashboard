@@ -1,8 +1,17 @@
 async function fetchJSON(path) {
   const res = await fetch(path);
   if (!res.ok) throw new Error(`Failed to fetch ${path}: ${res.status}`);
-  return res.json();
+  const body = await res.json();
+  // Every endpoint returns a row array; anything else would throw later in a
+  // process*() and fail the whole load instead of just this series.
+  if (!Array.isArray(body)) throw new Error(`Unexpected response from ${path}`);
+  return body;
 }
+
+// Last successful response per endpoint. A refresh that hits a network blip
+// reuses it, so the failed series keep their data instead of redrawing empty
+// (a failed fetch used to become [] and wipe the chart until the next refresh).
+const lastGood = new Map();
 
 export async function loadAllData() {
   const endpoints = [
@@ -14,13 +23,23 @@ export async function loadAllData() {
     '/api/lactate-threshold',
   ];
   const results = await Promise.allSettled(endpoints.map(fetchJSON));
+  const failed = [];
   const [weight, bodyfat, dexa, measurements, rhr, hrv, activities, vo2max, workoutVolume, liftProgression, workoutSets, hrRecovery, zoneMinutes, sleep, steps, stress, bodyBattery, lactateThreshold] = results.map((r, i) => {
-    if (r.status === 'fulfilled') return r.value;
+    if (r.status === 'fulfilled') {
+      lastGood.set(endpoints[i], r.value);
+      return r.value;
+    }
     console.warn(`Failed to load ${endpoints[i]}:`, r.reason);
-    return [];
+    failed.push(endpoints[i]);
+    // First load has nothing to fall back on → [] (card shows empty / "No data yet.").
+    return lastGood.get(endpoints[i]) ?? [];
   });
 
   return {
+    // Endpoints that failed this round, and how many answered — the caller
+    // uses these to decide whether the refresh counts (see rebuildCharts).
+    failed,
+    loaded: endpoints.length - failed.length,
     weight: processWeight(weight),
     bodyFat: processBodyFat(bodyfat, measurements, dexa),
     bodyMeasurements: processMeasurements(measurements),
@@ -156,9 +175,21 @@ function getWeeklyMileage(runs) {
     const weekKey = weekStart.toISOString().split('T')[0];
     byWeek.set(weekKey, (byWeek.get(weekKey) || 0) + r.distMi);
   }
-  return [...byWeek.entries()]
-    .map(([week, miles]) => ({ week, miles: Math.round(miles * 10) / 10 }))
-    .sort((a, b) => a.week.localeCompare(b.week));
+  // Emit every week from the first to the last, 0 for weeks with no run — a
+  // skipped week is a real 0-mile week, and dropping it inflated the mean and
+  // the trend. Keys are all Saturdays, so stepping 7 UTC days from the first
+  // lands exactly on each later key.
+  const keys = [...byWeek.keys()].sort();
+  const weeks = [];
+  if (keys.length) {
+    const last = keys[keys.length - 1];
+    const d = new Date(keys[0]);
+    for (let week = keys[0]; week <= last; week = d.toISOString().split('T')[0]) {
+      weeks.push({ week, miles: Math.round((byWeek.get(week) || 0) * 10) / 10 });
+      d.setUTCDate(d.getUTCDate() + 7);
+    }
+  }
+  return weeks;
 }
 
 // --- Lift Progression ---
