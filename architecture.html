@@ -295,9 +295,17 @@
           <div class="node-name">strava_merge.py<span class="node-time" data-job="strava_merge"></span></div>
           <div class="node-desc">merges into running_activities</div>
         </div>
+        <div class="node blue">
+          <div class="node-name">garmin_streams.py<span class="node-time" data-job="garmin_streams"></span></div>
+          <div class="node-desc">Garmin FIT records → per-second HR streams</div>
+        </div>
         <div class="node red">
           <div class="node-name">hr_recovery.py<span class="node-time" data-job="hr_recovery"></span></div>
           <div class="node-desc">computes 60s HR drop per run</div>
+        </div>
+        <div class="node cyan">
+          <div class="node-name">backup_garmin_db.sh<span class="node-time" data-job="backup_garmin_db"></span></div>
+          <div class="node-desc">snapshots garmin.db + data/master</div>
         </div>
       </div>
     </div>
@@ -322,7 +330,6 @@
             <span class="chip">strava_activities.json</span>
             <span class="chip">strava_streams/*</span>
             <span class="chip">unified_daily.json</span>
-            <span class="chip">measurements.json</span>
             <span class="chip">activities.json</span>
           </div>
         </div>
@@ -504,6 +511,7 @@
           workout_sync: 'lifts → DB',
           strava_sync: 'activities + streams',
           strava_merge: '→ running_activities',
+          garmin_streams: 'FIT → HR streams',
           hr_recovery: '60s drop / run',
           backup_garmin_db: 'rotating snapshot',
         };

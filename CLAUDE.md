@@ -4,7 +4,7 @@ Personal health metrics dashboard at https://health.keo.life
 
 ## Tech Stack
 - Static site: HTML + vanilla JS + CSS (no build tools)
-- Charts: Chart.js v4.4.7 (CDN) + date-fns adapter + zoom plugin + hammer
+- Charts: Chart.js v4.4.7 (CDN) + date-fns adapter + zoom plugin + hammer + annotation plugin 3.0.1
 - Server: Python stdlib `ThreadingHTTPServer` (`serve.py`) on port 8888
 - Deployment: Cloudflare Tunnel → health.keo.life (no auth — intentional)
 - Auto-start: systemd user service (`health-dashboard.service`)
@@ -63,11 +63,11 @@ carries a CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`.
 | `/api/steps` | `daily_summary` | `{date, steps, step_goal}` |
 | `/api/stress` | `daily_summary` | `{date, stress}` (daily avg; Garmin's `-1` no-data value dropped) |
 | `/api/body-battery` | `daily_summary` | `{date, high, low}` |
-| `/api/health` | DB + JSON + `pipeline_status.json` | `{status, stale[], sources[{name, latest, age_days, max_age_days, ok}], pipeline}` — **200 fresh / 503 stale**; thresholds in `HEALTH_*_SOURCES` |
+| `/api/health` | DB + JSON + `pipeline_status.json` | `{status, checked_at, stale[], sources[{name, latest, age_days, max_age_days, ok}], pipeline}` — **200 fresh / 503 stale**; thresholds in `HEALTH_*_SOURCES` |
 | `/api/version` | `git log` | `{sha, date}` (cached by `.git/logs/HEAD` mtime) |
 | `/api/routes` | `API_ROUTES` | `["/api/…", …]` — drives architecture.html live |
 | `/api/schema` | `sqlite_master` | `[{table, columns[]}]` — drives architecture.html live |
-| `/api/cron` | `crontab -l` + `run_pipeline.sh` + timer | `[{time, name, via?, step?, steps?}]` — expands the pipeline line into its `step` lines; drives architecture.html live |
+| `/api/cron` | `crontab -l` + `run_pipeline.sh` + timer | `[{time, name, via?, step?, steps?}]` — expands the pipeline line into its `step` lines (the `*/15` health-check line is not listed); drives architecture.html live |
 
 ## Frontend
 - `index.html` — six `#hash`-switched "pages": Overview (KPI landing) / Body / Sleep / Daily / Running / Lifts. Header has range presets (1M/3M/6M/YTD/1Y/All), GitHub link, architecture link.
@@ -104,7 +104,7 @@ served live. After editing `serve.py`, restart the service.
 - Height for Navy BF% = **72 inches** (6'0")
 - HRmax for zone bins = **200 bpm**
 - Weight converted from kg via `* 2.20462`
-- Run-vs-walk filter (data.js `processRuns`): **avg HR ≥ 110 AND pace ≤ 18 min/mi** — `running_activities` has no sport column and includes walks; verified nothing faster than 12 min/mi has HR < 110, so this cuts zero real runs while dropping 20–35 min/mi strolls.
+- Run-vs-walk filter (data.js `processRuns`): **avg HR ≥ 110 AND pace ≤ 18 min/mi** — every row in `running_activities` was recorded as "running" on the watch, walks included, so sport can't separate them; nothing faster than 12 min/mi has HR < 110. **Known gap:** pace uses elapsed `duration_sec`, so a run session with long standing rests is dropped as a walk (2026-04-26, 05-03, 05-10, 10-07 19:24 — 3.33 mi at 10.7 min/mi moving, 18.2 elapsed) and is missing from Weekly Mileage, while Zone Minutes and HR Recovery include it. Garmin's `movingDuration` is in `data/master/activities.json` but not in the DB.
 - PR stars (lift charts, `prAnnotation`): rank by estimated 1-rep max (Epley: `weight·(1+reps/30)`) across **every set** in `/api/workout-sets`, not raw weight — so 100×10 outranks 100×9; label shows `weight×reps`. Bodyweight/rep-only lifts rank by reps.
 - Daily weight = the **last Renpho reading between 04:00 and 12:00** local (else the first one after noon). Older days are only rewritten when the stored value isn't a scale reading at all (`renpho_sync.py`).
 - Body-fat goal (12%) is on the **DEXA scale**: the KPI gap and goal line compare against the latest DEXA scan, never the Renpho number (which is just a function of weight).

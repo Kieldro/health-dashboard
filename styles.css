@@ -172,6 +172,8 @@ main {
   font-size: 0.7rem;
   color: var(--text-muted);
   margin: 0.1rem 0 0.6rem;
+  /* keep the right-aligned freshness chip clear of the ⤢ button above it */
+  padding-right: 2.4rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
