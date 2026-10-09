@@ -788,8 +788,12 @@ LONG_CACHE_EXTS = (".png", ".svg", ".ico", ".webmanifest", ".jpg", ".jpeg",
 # architecture.html never needs a matching edit here. Styles keep
 # 'unsafe-inline' because both pages use style="" attributes (which hashes
 # can't cover) and architecture.html is deliberately one self-contained file.
+# cloudflareinsights: Cloudflare's edge injects its Web Analytics beacon into
+# HTML for browsers (never visible from the origin or curl), which loads from
+# static.cloudflareinsights.com and reports to cloudflareinsights.com.
 CSP = ("default-src 'self'; "
-       "script-src 'self' https://cdn.jsdelivr.net{hashes}; "
+       "script-src 'self' https://cdn.jsdelivr.net https://static.cloudflareinsights.com{hashes}; "
+       "connect-src 'self' https://cloudflareinsights.com; "
        "style-src 'self' 'unsafe-inline'; "
        "img-src 'self' data:; "
        "object-src 'none'; base-uri 'none'; form-action 'none'; "
