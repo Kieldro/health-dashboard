@@ -81,7 +81,7 @@ carries a CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`.
 **Body page** (6): Weight Trend · Body Fat % (Renpho + Navy + DEXA) · Body Measurements · Limb Measurements · Resting HR · HRV
 **Sleep page** (2): Sleep Duration & Stages (deep/REM/light stacked, 7h goal) · Sleep Score (+30d MA)
 **Daily page** (3): Daily Steps (vs adaptive goal) · Stress (+30d MA) · Body Battery (daily low→high range)
-**Running page** (9): Efficiency Factor · 5K HR + Pace · Long Run Distance · Weekly Mileage · VO2 Max · HR Recovery · Weekly HR Zone Minutes · Training Log (bubble) · Lactate Threshold (LT HR + pace, dual-axis)
+**Running page** (9): Efficiency Factor · 5K HR + Pace · Long Run Distance · Weekly Mileage (+ VO2 Max line, right axis) · VO2 Max · HR Recovery · Weekly HR Zone Minutes · Training Log (bubble) · Lactate Threshold (LT HR + pace, dual-axis)
 **Lifts page** (8): Weekly Volume · Upper Body Machines · Upper Body DB · Lower Body — Legs · Lower Body — Hip/Core · Lower Body BB/DB · Bodyweight (Pull-ups/V-ups/Push-ups/Calf/Gripper/Front Lever + Dead Hang) · Neck (dot size = weight). The roster per chart is one table, `LIFT_CHARTS` in app.js — add a lift there when the programme changes (old lifts stay as history).
 
 ## Development

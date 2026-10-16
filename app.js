@@ -919,13 +919,42 @@ async function rebuildCharts(initial = false) {
     ], opts));
   })();
 
-  // 9. Weekly Mileage (bar + trendline)
+  // 9. Weekly Mileage (bar + trendline) + VO2 Max overlay (right axis)
   const mileagePoints = data.runs.weeklyMileage.map(d => ({ x: d.week, y: d.miles }));
   // Fit the trend to completed weeks only: the in-progress week is a partial
   // total and would drag the line down until Friday.
   const mileageTrendPoints = mileagePoints.filter(p => !isCurrentWeek(p.x));
+  // VO2 Max per mileage week: the latest reading up to that week's Friday,
+  // carried forward (Garmin only updates it after some runs). Exactly one point
+  // per bar keeps the 'index' tooltip pairing each week's miles with its VO2.
+  const vo2Sorted = data.vo2max.filter(d => d.vo2max != null)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const mileageVo2Points = [];
+  {
+    let i = 0, latest = null;
+    for (const p of mileagePoints) {
+      const end = new Date(p.x);
+      end.setUTCDate(end.getUTCDate() + 6);  // week keys are Saturdays (UTC) → Friday
+      const endStr = end.toISOString().split('T')[0];
+      while (i < vo2Sorted.length && vo2Sorted[i].date <= endStr) latest = vo2Sorted[i++].vo2max;
+      mileageVo2Points.push({ x: p.x, y: latest });
+    }
+  }
   (() => {
     const opts = baseOptions({ showLegend: true, timeUnit: 'week', yLabel: 'miles' });
+    opts.scales.y1 = {
+      position: 'right',
+      beginAtZero: false,  // bar charts default value axes to 0, which flattens 37–48
+      grid: { drawOnChartArea: false },
+      ticks: { color: COLORS.orange },
+      title: { display: true, text: 'VO2 max', color: COLORS.orange },
+    };
+    // Dual y-axes — y-zoom is ambiguous, restrict to x.
+    opts.plugins.zoom.zoom.mode = 'x';
+    opts.plugins.zoom.pan.mode = 'x';
+    // order -1 draws the VO2 line over the bars; keep legend + tooltip in dataset order.
+    opts.plugins.tooltip.itemSort = (a, b) => a.datasetIndex - b.datasetIndex;
+    opts.plugins.legend.labels.sort = (a, b) => a.datasetIndex - b.datasetIndex;
     mergeAnnotations(opts, runningEventAnno);
     pending.push(createChart('weeklyMileageChart', 'bar', [
       {
@@ -937,6 +966,14 @@ async function rebuildCharts(initial = false) {
         borderRadius: 3,
       },
       { ...trendline('mileage', mileageTrendPoints, COLORS.green), label: 'Trend', type: 'line' },
+      {
+        label: 'VO2 Max',
+        data: mileageVo2Points,
+        ...lineDefaults(COLORS.orange),
+        type: 'line',
+        yAxisID: 'y1',
+        order: -1,
+      },
     ], opts));
   })();
 
