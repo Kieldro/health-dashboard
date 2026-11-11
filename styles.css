@@ -260,6 +260,9 @@ main {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+/* stale "N ago" chip on its own line under the goal gap */
+.kpi-sub .chart-updated { display: block; margin-top: 0.15rem; }
+
 /* Chart expand / collapse controls (top-right of each card) */
 .expand-btn,
 .expand-close {

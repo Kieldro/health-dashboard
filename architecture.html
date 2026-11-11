@@ -555,7 +555,8 @@
         }
         if (timers.length) {
           const note = document.getElementById('timerNote');
-          note.textContent = `Also: ${timers[0].via} (systemd user timer) runs ${base(timers[0].name)} at ${timers.map(t => t.time).join(' and ')}.`;
+          const uniq = xs => [...new Set(xs)];
+          note.textContent = `Also: ${timers[0].via} (systemd user timer) runs ${uniq(timers.map(t => base(t.name))).join(' then ')} at ${uniq(timers.map(t => t.time)).join(' and ')}.`;
           note.hidden = false;
         }
       }

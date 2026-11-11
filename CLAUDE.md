@@ -25,7 +25,10 @@ locked (`flock ~/garmin-sync/.pipeline.lock`), sequential run of these steps
 9. `hr_recovery` — 60s HR drop from peak per run
 10. `backup` — `backup_garmin_db.sh`: newest 14 garmin.db snapshots + 7 `data/master` tarballs, copied to `/media/keo/hdd-ext4/backups/garmin-sync/`
 
-Also: `garmin-sync.timer` runs `sync_v2` at 23:00 and 00:00 (same lock), and
+Also: `garmin-sync.timer` runs `sync_v2` then `merge_daily` at 23:00 and 00:00
+(same lock; unit in `~/.config/systemd/user/garmin-sync.service`, not in a repo)
+— `sync_v2` alone only refreshes the JSON masters, so without the merge the DB
+kept the noon snapshot of steps/stress/body battery until the next noon. And
 cron runs `health_check.sh` every 15 min — it polls `/api/health` and sends an
 ntfy/desktop alert when the status CHANGES (stale, recovered, unreachable).
 Each run writes `data/pipeline_status.json`, which `/api/health` reads.
@@ -77,12 +80,12 @@ carries a CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`.
 - `architecture.html` — self-contained architecture diagram (also served at `/architecture.html`).
 
 ## Charts (current roster)
-**Overview page**: KPI cards (latest value + goal gap) — Weight · Body Fat · RHR · HRV · VO2 · Lactate Threshold · Last Run · This Week · Sleep · Steps
+**Overview page**: KPI cards (latest value + goal gap) — Weight · Body Fat · RHR · HRV · VO2 · Lactate Threshold · Last Run · This Week · Sleep · Steps. A card whose value is over 7 days old gets the charts' amber/red "N ago" chip (`staleClass`); Steps shows the last *finished* day, not today's partial count.
 **Body page** (6): Weight Trend · Body Fat % (Renpho + Navy + DEXA) · Body Measurements · Limb Measurements · Resting HR · HRV
 **Sleep page** (2): Sleep Duration & Stages (deep/REM/light stacked, 7h goal) · Sleep Score (+30d MA)
 **Daily page** (3): Daily Steps (vs adaptive goal) · Stress (+30d MA) · Body Battery (daily low→high range)
 **Running page** (9): Efficiency Factor · 5K HR + Pace · Long Run Distance · Weekly Mileage (+ VO2 Max line, right axis) · VO2 Max · HR Recovery · Weekly HR Zone Minutes · Training Log (bubble) · Lactate Threshold (LT HR + pace, dual-axis)
-**Lifts page** (8): Weekly Volume · Upper Body Machines · Upper Body DB · Lower Body — Legs · Lower Body — Hip/Core · Lower Body BB/DB · Bodyweight (Pull-ups/V-ups/Push-ups/Calf/Gripper/Front Lever + Dead Hang) · Neck (dot size = weight). The roster per chart is one table, `LIFT_CHARTS` in app.js — add a lift there when the programme changes (old lifts stay as history).
+**Lifts page** (8): Weekly Volume · Upper Body Machines · Upper Body DB · Lower Body — Legs · Lower Body — Hip/Core · Lower Body BB/DB · Bodyweight (Pull-ups/V-ups/Push-ups/Calf/Gripper/Front Lever + Dead Hang) · Neck (dot size = weight). The roster per chart is one table, `LIFT_CHARTS` in app.js — add a lift there when the programme changes (old lifts stay as history). The first column must be the exercise name exactly as `workout_sync.py` normalizes it (`db row`, not `row db`) — a mismatch is silent: the series just draws empty.
 
 ## Development
 ```bash

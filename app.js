@@ -51,12 +51,13 @@ const LIFT_CHARTS = {
     ['cable row', 'Cable Row', 'Cable Row', 'yellow', GYM_START],
     ['dips machine', 'Dips (machine)', 'Dips M', 'orange', GYM_START],
     ['dips weighted', 'Dips (weighted)', 'Dips W', 'purple', GYM_START],
+    ['face pulls', 'Face Pulls', 'Face Pull', 'cyan', GYM_START],
   ],
   upperDBChart: [
     ['lateral raise', 'Lat Raise', 'Lat Raise', 'green'],
     ['hammer curl', 'Hammer Curls', 'Hammer', 'yellow'],
     ['kelso shrugs', 'Kelso Shrugs', 'Shrug', 'blue'],
-    ['row db', 'DB Row', 'DB Row', 'red'],
+    ['db row', 'DB Row', 'DB Row', 'red'],
     ['wrist curls', 'Wrist Curls', 'Wrist Curl', 'purple'],
     ['wrist extensions', 'Wrist Extensions', 'Wrist Ext', 'orange'],
     ['turkish getups', 'Turkish Get-ups', 'TGU', 'cyan'],
@@ -262,6 +263,13 @@ const STALE_AMBER_DAYS = 7;
 const STALE_RED_DAYS = 21;
 const WEEK_SPAN = 6;
 
+/** CSS class for a "last updated" chip: '' while fresh. `weekly`: lastDate is
+ *  a week-start key rather than a day. */
+function staleClass(lastDate, weekly = false) {
+  const days = lastDate ? daysAgo(lastDate) - (weekly ? WEEK_SPAN : 0) : -1;
+  return days > STALE_RED_DAYS ? ' stale-red' : days > STALE_AMBER_DAYS ? ' stale-amber' : '';
+}
+
 /** `weekly`: lastDate is a week-start key rather than a day. */
 function setChartMeta(canvasId, latest, lastDate, goalNote, { weekly = false } = {}) {
   const canvas = document.getElementById(canvasId);
@@ -276,8 +284,7 @@ function setChartMeta(canvasId, latest, lastDate, goalNote, { weekly = false } =
   const ago = weekly ? relativeWeek(lastDate) : relativeAgo(lastDate);
   // Staleness: flag metrics that haven't updated within their expected cadence
   // (catches a silently-broken sync — e.g. hr-recovery that's weeks behind).
-  const days = lastDate ? daysAgo(lastDate) - (weekly ? WEEK_SPAN : 0) : -1;
-  const stale = days > STALE_RED_DAYS ? ' stale-red' : days > STALE_AMBER_DAYS ? ' stale-amber' : '';
+  const stale = staleClass(lastDate, weekly);
   meta.innerHTML =
     (latest ? `<span class="chart-latest">${latest}</span>` : '') +
     (goalNote ? `<span class="chart-goal">${goalNote}</span>` : '') +
@@ -1675,27 +1682,36 @@ function renderOverview(data) {
   const grid = document.getElementById('overviewGrid');
   if (!grid) return;
   const cards = [];
-  const add = (label, value, sub) => cards.push(
-    `<div class="kpi"><div class="kpi-label">${label}</div>` +
-    `<div class="kpi-value">${value}</div>` +
-    (sub ? `<div class="kpi-sub">${sub}</div>` : '') + '</div>');
+  // `date` (the row the value came from) adds the charts' amber/red "N ago"
+  // chip once the value is stale, so an old reading can't pass for today's;
+  // a fresh card stays clean.
+  const add = (label, value, sub, date, { weekly = false } = {}) => {
+    const stale = staleClass(date, weekly);
+    const chip = stale
+      ? `<span class="chart-updated${stale}">${weekly ? relativeWeek(date) : relativeAgo(date)}</span>` : '';
+    const lines = (sub || '') + chip;
+    cards.push(
+      `<div class="kpi"><div class="kpi-label">${label}</div>` +
+      `<div class="kpi-value">${value}</div>` +
+      (lines ? `<div class="kpi-sub">${lines}</div>` : '') + '</div>');
+  };
 
   // latestRow() throughout: a card is only rendered from a row that has a value.
   const w = latestRow(data.weight, 'weight');
-  if (w) add('Weight', `${w.weight.toFixed(1)} lb`, goalGap(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }));
+  if (w) add('Weight', `${w.weight.toFixed(1)} lb`, goalGap(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }), w.date);
   // Headline is the daily Renpho reading (falling back to the scan itself);
   // the goal gap underneath is DEXA-only — see dexaGoalNote.
   const bf = latestRow(data.bodyFat?.renpho, 'renpho');
   const dexa = latestRow(data.bodyFat?.dexa, 'dexa');
-  if (bf || dexa) add('Body Fat', `${bf ? bf.renpho : dexa.dexa}%`, dexaGoalNote(data));
+  if (bf || dexa) add('Body Fat', `${bf ? bf.renpho : dexa.dexa}%`, dexaGoalNote(data), bf?.date);
   const rhr = latestRow(data.rhr, 'rhr');
-  if (rhr) add('Resting HR', `${rhr.rhr} bpm`, goalGap(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }));
+  if (rhr) add('Resting HR', `${rhr.rhr} bpm`, goalGap(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }), rhr.date);
   const hrv = latestRow(data.hrv, 'hrv');
-  if (hrv) add('HRV', `${hrv.hrv} ms`, goalGap(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }));
+  if (hrv) add('HRV', `${hrv.hrv} ms`, goalGap(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }), hrv.date);
   const vo2 = latestRow(data.vo2max, 'vo2max');
-  if (vo2) add('VO2 Max', `${vo2.vo2max}`, goalGap(vo2.vo2max, GOALS.vo2max, { decimals: 1 }));
+  if (vo2) add('VO2 Max', `${vo2.vo2max}`, goalGap(vo2.vo2max, GOALS.vo2max, { decimals: 1 }), vo2.date);
   const lt = latestRow(data.lactateThreshold, 'lthr');
-  if (lt) add('Lactate Threshold', `${lt.lthr} bpm`, lt.pace != null ? `${fmtPace(lt.pace)} pace` : '');
+  if (lt) add('Lactate Threshold', `${lt.lthr} bpm`, lt.pace != null ? `${fmtPace(lt.pace)} pace` : '', lt.date);
   const run = data.runs?.all?.at(-1);
   if (run) add('Last Run', `${run.distMi.toFixed(1)} mi`, `${fmtPace(run.paceMinMi)} · ${relativeAgo(run.date)}`);
   // Labelled "This Week" only when the latest row is this week; otherwise by
@@ -1716,8 +1732,14 @@ function renderOverview(data) {
     const when = nights === 0 ? 'last night' : nights === 1 ? '2 nights ago' : fmtDay(sl.date);
     add('Sleep', `${sl.score}`, `${sl.totalH != null ? sl.totalH + 'h · ' : ''}${when}`);
   }
-  const stp = latestRow(data.steps, 'steps');
-  if (stp) add('Steps', stp.steps.toLocaleString(), stp.step_goal != null ? `goal ${stp.step_goal.toLocaleString()}` : '');
+  // Steps accumulate all day and today's row is only as fresh as the last
+  // sync, so the headline is the last finished day (today's partial count read
+  // like a missed goal); the Daily Steps card still shows today.
+  const today = localISO();
+  const stp = data.steps?.findLast(r => r?.steps != null && r.date < today) ?? latestRow(data.steps, 'steps');
+  if (stp) add('Steps', stp.steps.toLocaleString(),
+    [relativeAgo(stp.date), stp.step_goal != null ? `goal ${stp.step_goal.toLocaleString()}` : ''].filter(Boolean).join(' · '),
+    stp.date);
 
   grid.innerHTML = cards.join('') || '<p class="card-error">No data yet.</p>';
 }

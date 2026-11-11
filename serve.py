@@ -572,7 +572,8 @@ def _cron_jobs(raw):
 
 def _timer_jobs():
     """Entries for the systemd user timer that also runs a sync, one per
-    OnCalendar time; [] if the timer isn't active or systemctl can't say."""
+    OnCalendar time and script it runs (in run order); [] if the timer isn't
+    active or systemctl can't say."""
     props = _run(["systemctl", "--user", "show", SYNC_TIMER,
                   "-p", "ActiveState", "-p", "Unit", "-p", "TimersCalendar"], timeout=3)
     if "ActiveState=active" not in props.splitlines():
@@ -580,16 +581,16 @@ def _timer_jobs():
     # "TimersCalendar={ OnCalendar=*-*-* 23:00:00 ; next_elapse=… }"
     times = sorted({f"{int(h):02d}:{m}" for h, m in re.findall(
         r"OnCalendar=[^;]*?\s(\d{1,2}):(\d{2})(?::\d{2})?\s*;", props)})
-    name = SYNC_TIMER
+    names = [SYNC_TIMER]
     unit = re.search(r"^Unit=([\w@.\-]+)$", props, re.M)
     if unit:
-        # Name the job after the script the activated service runs.
+        # Name the jobs after the scripts the activated service runs.
         argv = re.search(r"argv\[\]=(.*?) ;", _run(
             ["systemctl", "--user", "show", unit.group(1), "-p", "ExecStart"], timeout=3))
         scripts = [tok.rsplit("/", 1)[-1] for tok in (argv.group(1).split() if argv else [])
                    if tok.endswith((".py", ".sh"))]
-        name = scripts[-1] if scripts else unit.group(1)
-    return [{"time": t, "name": name, "via": SYNC_TIMER} for t in times]
+        names = scripts or [unit.group(1)]
+    return [{"time": t, "name": n, "via": SYNC_TIMER} for t in times for n in names]
 
 
 def api_cron():
