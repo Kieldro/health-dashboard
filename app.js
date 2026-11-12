@@ -314,11 +314,35 @@ function fmtPace(minPerMi) {
 function xScale(timeUnit = 'month') {
   return {
     type: 'time',
-    time: { unit: timeUnit },
+    time: {
+      unit: timeUnit,
+      // Rows are calendar days: the default title read "Nov 3, 2026, 12:00:00 a.m.".
+      tooltipFormat: 'EEE, MMM d, yyyy',
+    },
     min: currentMin,
     max: currentMax,
     grid: { color: GRID_COLOR },
-    ticks: { color: TICK_COLOR },
+    ticks: {
+      color: TICK_COLOR,
+      maxRotation: 0,
+      major: { enabled: timeUnit === 'month' },
+      // Short, never-rotated labels ("Feb", "Feb 14"): the default "Feb 2026" /
+      // "Feb 14, 2026" rotated 45° on a phone (and on every weekly chart) and
+      // ate ~50px of plot height. The year is carried by January (a major
+      // tick, so auto-skip keeps it) and by the first tick; a week axis that
+      // spans a year boundary carries it on every tick.
+      // (A time scale hands the callback the timestamp, not the label.)
+      callback: (ms, i, ticks) => {
+        const d = new Date(ms);
+        const yy = ` ’${String(d.getFullYear()).slice(2)}`;
+        if (timeUnit === 'week') {
+          const multiYear = new Date(ticks[0].value).getFullYear() !== new Date(ticks.at(-1).value).getFullYear();
+          return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) + (i === 0 || multiYear ? yy : '');
+        }
+        if (d.getMonth() === 0) return String(d.getFullYear());
+        return d.toLocaleDateString('en-US', { month: 'short' }) + (i === 0 ? yy : '');
+      },
+    },
   };
 }
 
@@ -357,7 +381,13 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
         },
         pan: {
           enabled: true,
-          mode: 'xy',
+          // A finger on a grid chart pans x only: vertical swipes belong to the
+          // page (styles.css: touch-action pan-y), and without this each scroll
+          // that started on a chart nudged its y-axis before the browser took
+          // the gesture over. Mouse drags and the expanded view keep 'xy'.
+          onPanStart: ({ chart, event }) => { chart.$touchPan = event.pointerType === 'touch'; },
+          mode: ({ chart }) =>
+            chart.$touchPan && !chart.canvas.closest('.chart-card.expanded') ? 'x' : 'xy',
         },
       },
     },
@@ -560,6 +590,8 @@ async function init() {
     try { const p = localStorage.getItem('lastPage'); if (p) location.hash = p; } catch {}
   }
   wireChartExpand();
+  wireOverview();
+  wireToolbar();
   wirePageRouter();
 
   fetch('/api/version')
@@ -647,6 +679,10 @@ async function rebuildCharts(initial = false) {
       annotations: GOALS.weightLbs != null
         ? { goal: goalLineAnnotation(GOALS.weightLbs, `goal ${GOALS.weightLbs}`, COLORS.yellow) }
         : {},
+    };
+    // Weight is converted from kg, so the raw point read "193.235".
+    opts.plugins.tooltip.callbacks = {
+      label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)} lb`,
     };
     mergeAnnotations(opts, bodyEventAnno);
     pending.push(createChart('weightChart', 'line', [
@@ -1676,44 +1712,82 @@ function applyChartMetadata(data) {
   if (bbLast) setChartMeta('bodyBatteryChart', `${bbLast.low}–${bbLast.high}`, bbLast.date);
 }
 
-/** Render the Overview page: at-a-glance KPI cards (latest value + goal gap)
- *  so you don't have to scan every chart to know where you stand today. */
+/** Inline-SVG sparkline of [{x: 'YYYY-MM-DD', y}] across the header's range.
+ *  The x extent is the range itself (not the data's), so a series that stopped
+ *  updating visibly ends short of the right edge. */
+function sparkline(points) {
+  const lo = currentMin ? dayNum(currentMin) : null;
+  const pts = (points || [])
+    .filter(p => p.y != null && (lo == null || dayNum(p.x) >= lo))
+    .map(p => [dayNum(p.x), p.y]);
+  if (pts.length < 2) return '';
+  const x0 = lo ?? pts[0][0];
+  const xSpan = dayNum(currentMax) - x0 || 1;
+  const ys = pts.map(p => p[1]);
+  const y0 = Math.min(...ys);
+  const ySpan = Math.max(...ys) - y0;
+  // 28-high box with 3px of headroom top and bottom; a flat series sits mid-height.
+  const xy = ([d, v]) =>
+    `${((d - x0) / xSpan * 100).toFixed(1)},${(ySpan ? 25 - (v - y0) / ySpan * 22 : 14).toFixed(1)}`;
+  return '<svg class="kpi-spark" viewBox="0 0 100 28" preserveAspectRatio="none" aria-hidden="true">' +
+    `<polyline points="${pts.map(xy).join(' ')}"/></svg>`;
+}
+
+// Data behind the current Overview, kept so a range change can redraw the
+// sparklines without refetching.
+let _overviewData = null;
+
+/** Render the Overview page: at-a-glance KPI cards (latest value + goal gap +
+ *  trend sparkline) so you don't have to scan every chart to know where you
+ *  stand today. Each card links to its chart (`chart`: canvas id). */
 function renderOverview(data) {
   const grid = document.getElementById('overviewGrid');
   if (!grid) return;
+  _overviewData = data;
   const cards = [];
   // `date` (the row the value came from) adds the charts' amber/red "N ago"
   // chip once the value is stale, so an old reading can't pass for today's;
-  // a fresh card stays clean.
-  const add = (label, value, sub, date, { weekly = false } = {}) => {
+  // a fresh card stays clean. `spark`: [{x, y}] drawn over the header's range.
+  const add = (label, value, sub, chart, { date, weekly = false, spark } = {}) => {
     const stale = staleClass(date, weekly);
     const chip = stale
       ? `<span class="chart-updated${stale}">${weekly ? relativeWeek(date) : relativeAgo(date)}</span>` : '';
     const lines = (sub || '') + chip;
     cards.push(
-      `<div class="kpi"><div class="kpi-label">${label}</div>` +
+      `<a class="kpi" href="#chart/${chart}"><div class="kpi-label">${label}</div>` +
       `<div class="kpi-value">${value}</div>` +
-      (lines ? `<div class="kpi-sub">${lines}</div>` : '') + '</div>');
+      (lines ? `<div class="kpi-sub">${lines}</div>` : '') + sparkline(spark) + '</a>');
   };
+  const series = (rows, key) => rows?.map(r => ({ x: r.date ?? r.week, y: r[key] }));
+  // Day-to-day noise would turn these into fuzz at card width — the sparkline
+  // is their 7-day average (the headline number stays the latest reading).
+  const smooth = (rows, key) => computeMA(rows || [], key, 7);
 
   // latestRow() throughout: a card is only rendered from a row that has a value.
   const w = latestRow(data.weight, 'weight');
-  if (w) add('Weight', `${w.weight.toFixed(1)} lb`, goalGap(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }), w.date);
+  if (w) add('Weight', `${w.weight.toFixed(1)} lb`, goalGap(w.weight, GOALS.weightLbs, { unit: 'lb', lowerIsBetter: true }),
+    'weightChart', { date: w.date, spark: series(data.weight, 'ma7') });
   // Headline is the daily Renpho reading (falling back to the scan itself);
   // the goal gap underneath is DEXA-only — see dexaGoalNote.
   const bf = latestRow(data.bodyFat?.renpho, 'renpho');
   const dexa = latestRow(data.bodyFat?.dexa, 'dexa');
-  if (bf || dexa) add('Body Fat', `${bf ? bf.renpho : dexa.dexa}%`, dexaGoalNote(data), bf?.date);
+  if (bf || dexa) add('Body Fat', `${bf ? bf.renpho : dexa.dexa}%`, dexaGoalNote(data),
+    'bodyFatChart', { date: bf?.date, spark: series(data.bodyFat?.renpho, 'renpho') });
   const rhr = latestRow(data.rhr, 'rhr');
-  if (rhr) add('Resting HR', `${rhr.rhr} bpm`, goalGap(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }), rhr.date);
+  if (rhr) add('Resting HR', `${rhr.rhr} bpm`, goalGap(rhr.rhr, GOALS.rhrBpm, { unit: 'bpm', decimals: 0, lowerIsBetter: true }),
+    'rhrChart', { date: rhr.date, spark: smooth(data.rhr, 'rhr') });
   const hrv = latestRow(data.hrv, 'hrv');
-  if (hrv) add('HRV', `${hrv.hrv} ms`, goalGap(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }), hrv.date);
+  if (hrv) add('HRV', `${hrv.hrv} ms`, goalGap(hrv.hrv, GOALS.hrvMs, { unit: 'ms', decimals: 0 }),
+    'hrvChart', { date: hrv.date, spark: smooth(data.hrv, 'hrv') });
   const vo2 = latestRow(data.vo2max, 'vo2max');
-  if (vo2) add('VO2 Max', `${vo2.vo2max}`, goalGap(vo2.vo2max, GOALS.vo2max, { decimals: 1 }), vo2.date);
+  if (vo2) add('VO2 Max', `${vo2.vo2max}`, goalGap(vo2.vo2max, GOALS.vo2max, { decimals: 1 }),
+    'vo2maxChart', { date: vo2.date, spark: series(data.vo2max, 'vo2max') });
   const lt = latestRow(data.lactateThreshold, 'lthr');
-  if (lt) add('Lactate Threshold', `${lt.lthr} bpm`, lt.pace != null ? `${fmtPace(lt.pace)} pace` : '', lt.date);
+  if (lt) add('Lactate Threshold', `${lt.lthr} bpm`, lt.pace != null ? `${fmtPace(lt.pace)} pace` : '',
+    'ltChart', { date: lt.date, spark: series(data.lactateThreshold, 'lthr') });
   const run = data.runs?.all?.at(-1);
-  if (run) add('Last Run', `${run.distMi.toFixed(1)} mi`, `${fmtPace(run.paceMinMi)} · ${relativeAgo(run.date)}`);
+  if (run) add('Last Run', `${run.distMi.toFixed(1)} mi`, `${fmtPace(run.paceMinMi)} · ${relativeAgo(run.date)}`,
+    'trainingLogChart');
   // Labelled "This Week" only when the latest row is this week; otherwise by
   // the week it actually is. No training-day count: workout_weeks.training_days
   // only ever holds 0/5/6/7 (it read "7 training days" on day 5 of a week) and
@@ -1723,14 +1797,16 @@ function renderOverview(data) {
   if (vol) {
     const current = isCurrentWeek(vol.week);
     add(current ? 'This Week' : `Week of ${fmtDay(vol.week)}`, `${vol.total_sets} sets`,
-      current ? `wk of ${fmtDay(vol.week)}` : relativeWeek(vol.week));
+      current ? `wk of ${fmtDay(vol.week)}` : relativeWeek(vol.week),
+      'volumeChart', { spark: series(data.workoutVolume, 'total_sets') });
   }
   // Sleep rows are keyed by wake-up date, so only today's row is "last night".
   const sl = latestRow(data.sleep, 'score');
   if (sl) {
     const nights = daysAgo(sl.date);
     const when = nights === 0 ? 'last night' : nights === 1 ? '2 nights ago' : fmtDay(sl.date);
-    add('Sleep', `${sl.score}`, `${sl.totalH != null ? sl.totalH + 'h · ' : ''}${when}`);
+    add('Sleep Score', `${sl.score}`, `${sl.totalH != null ? sl.totalH + 'h · ' : ''}${when}`,
+      'sleepScoreChart', { spark: smooth(data.sleep, 'score') });
   }
   // Steps accumulate all day and today's row is only as fresh as the last
   // sync, so the headline is the last finished day (today's partial count read
@@ -1739,9 +1815,32 @@ function renderOverview(data) {
   const stp = data.steps?.findLast(r => r?.steps != null && r.date < today) ?? latestRow(data.steps, 'steps');
   if (stp) add('Steps', stp.steps.toLocaleString(),
     [relativeAgo(stp.date), stp.step_goal != null ? `goal ${stp.step_goal.toLocaleString()}` : ''].filter(Boolean).join(' · '),
-    stp.date);
+    'stepsChart', { date: stp.date, spark: smooth(data.steps?.filter(r => r.date < today), 'steps') });
 
   grid.innerHTML = cards.join('') || '<p class="card-error">No data yet.</p>';
+}
+
+/** A KPI card opens its chart the way ⤢ does — as our own history entry — so
+ *  ✕ / Esc / Back land on the Overview again rather than on the chart's page.
+ *  Modified clicks (new tab) fall through to the plain #chart/… link. */
+function wireOverview() {
+  document.getElementById('overviewGrid')?.addEventListener('click', (e) => {
+    const card = e.target.closest('a.kpi');
+    if (!card || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    history.pushState({ expanded: true }, '', card.getAttribute('href'));
+    applyRoute();
+  });
+}
+
+/** Toggle `.stuck` on the sticky toolbar while it is pinned to the viewport top. */
+function wireToolbar() {
+  const bar = document.getElementById('toolbar');
+  const sentinel = document.getElementById('toolbarSentinel');
+  if (!bar || !sentinel || !('IntersectionObserver' in window)) return;
+  new IntersectionObserver(([entry]) => {
+    bar.classList.toggle('stuck', !entry.isIntersecting && entry.boundingClientRect.top < 0);
+  }).observe(sentinel);
 }
 
 function setupAutoRefresh() {
@@ -1759,6 +1858,7 @@ function setupAutoRefresh() {
 }
 
 const PAGES = ['overview', 'body', 'sleep', 'daily', 'running', 'lifts'];
+let _activePage = null;
 let _expandedCanvasId = null;
 let _closingExpanded = false;  // a history.back() from closeExpanded() is in flight
 
@@ -1774,6 +1874,11 @@ function wirePageRouter() {
 function activatePage(target) {
   const t = PAGES.includes(target) ? target : 'overview';
   try { localStorage.setItem('lastPage', t); } catch {}
+  // Switching page from the pinned toolbar: start the new page at its top
+  // (toolbar still pinned) instead of wherever the last page was scrolled to.
+  const top = document.getElementById('toolbarSentinel')?.offsetTop;
+  if (_activePage && _activePage !== t && top != null && window.scrollY > top) window.scrollTo(0, top);
+  _activePage = t;
   for (const sec of document.querySelectorAll('.page')) {
     sec.classList.toggle('active', sec.id === `page-${t}`);
   }
@@ -1924,6 +2029,7 @@ function wireRangePresets() {
       chart.update('none');
     }
     updateRangeCaption();
+    if (_overviewData) renderOverview(_overviewData);
   });
 }
 
