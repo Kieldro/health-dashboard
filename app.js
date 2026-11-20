@@ -357,6 +357,9 @@ function baseOptions({ timeUnit = 'month', showLegend = false, yLabel = '' } = {
       legend: {
         display: showLegend,
         labels: { color: TICK_COLOR, boxWidth: 12 },
+        onClick: legendClick,
+        onHover: (e) => { e.native.target.style.cursor = 'pointer'; },
+        onLeave: (e) => { e.native.target.style.cursor = ''; },
       },
       tooltip: {
         filter: (item) => !item.dataset.label?.startsWith('_'),
@@ -471,6 +474,70 @@ function computeMA(data, key, days) {
   });
 }
 
+// ── Legend toggles ──────────────────────────────────────────────────────
+// Click a legend item to hide/show that series; double-click shows only it
+// (double-click it again: show all). Remembered per chart in localStorage, so
+// a reload or the 6h rebuild keeps the selection. A dataset's `group` (default:
+// its label) ties companions to a series — a lift's set dots and trendline hide
+// with its line (and its PR star, via annosForGroup).
+const LEGEND_KEY = 'legendHidden';
+let _legendHidden = {};
+try { _legendHidden = JSON.parse(localStorage.getItem(LEGEND_KEY)) || {}; } catch {}
+let _lastLegendClick = { chart: null, group: null, t: 0, before: null };
+
+const groupOf = (ds) => ds.group ?? ds.label;
+
+function groupVisible(chart, group) {
+  return chart.data.datasets.some((ds, i) => groupOf(ds) === group && chart.isDatasetVisible(i));
+}
+
+function hiddenGroups(chart) {
+  const groups = chart.legend.legendItems.map(it => groupOf(chart.data.datasets[it.datasetIndex]));
+  return new Set(groups.filter(g => !groupVisible(chart, g)));
+}
+
+function setHiddenGroups(chart, hidden) {
+  chart.data.datasets.forEach((ds, i) => chart.setDatasetVisibility(i, !hidden.has(groupOf(ds))));
+  chart.update();
+  const id = chart.canvas.id;
+  if (hidden.size) _legendHidden[id] = [...hidden];
+  else delete _legendHidden[id];
+  try { localStorage.setItem(LEGEND_KEY, JSON.stringify(_legendHidden)); } catch {}
+}
+
+function legendClick(e, item, legend) {
+  const chart = legend.chart;
+  const group = groupOf(chart.data.datasets[item.datasetIndex]);
+  const now = Date.now();
+  const last = _lastLegendClick;
+  if (last.chart === chart && last.group === group && now - last.t < 400) {
+    // Second click of a double: decide from the state before the first click,
+    // which already toggled this group.
+    const others = chart.legend.legendItems
+      .map(it => groupOf(chart.data.datasets[it.datasetIndex])).filter(g => g !== group);
+    const wasSolo = !last.before.has(group) && others.every(g => last.before.has(g));
+    setHiddenGroups(chart, wasSolo ? new Set() : new Set(others));
+    _lastLegendClick = { chart: null, group: null, t: 0, before: null };
+    return;
+  }
+  const before = hiddenGroups(chart);
+  const hidden = new Set(before);
+  if (hidden.has(group)) hidden.delete(group); else hidden.add(group);
+  setHiddenGroups(chart, hidden);
+  _lastLegendClick = { chart, group, t: now, before };
+}
+
+/** Show `annos` (an annotation map) only while `group`'s series is visible,
+ *  on top of each annotation's own display rule. */
+function annosForGroup(annos, group) {
+  for (const a of Object.values(annos || {})) {
+    const own = a.display;
+    a.display = (ctx) => groupVisible(ctx.chart, group)
+      && (typeof own === 'function' ? own(ctx) : own ?? true);
+  }
+  return annos;
+}
+
 /**
  * Create a chart with empty datasets and no animation.
  * Returns { chart, datasets } so data can be applied later in sync.
@@ -481,6 +548,9 @@ function createChart(canvasId, type, datasets, options) {
     console.warn(`Canvas #${canvasId} not found`);
     return null;
   }
+  // Series hidden from the legend last time stay hidden (see legendClick).
+  const hidden = new Set(_legendHidden[canvasId] || []);
+  for (const ds of datasets) if (hidden.has(groupOf(ds))) ds.hidden = true;
   const emptyDatasets = datasets.map(ds => {
     const copy = {};
     for (const [k, v] of Object.entries(ds)) {
@@ -1354,12 +1424,12 @@ async function rebuildCharts(initial = false) {
       const points = liftData(exercise, since);
       const scatter = setsScatter(exercise, FADED[color], since);
       return {
-        scatter,
+        scatter: { ...scatter, group: label },
         line: { label, data: points, ...liftDefaults(COLORS[color]) },
-        trend: trendline(exercise, points, FADED[color]),
+        trend: { ...trendline(exercise, points, FADED[color]), group: label },
         // Rank the PR over every set; the weekly top sets are only a fallback
         // for when /api/workout-sets came back empty.
-        pr: prAnnotation(scatter.data.length ? scatter.data : points, prLabel),
+        pr: annosForGroup(prAnnotation(scatter.data.length ? scatter.data : points, prLabel), label),
       };
     });
     pending.push(createChart(canvasId, 'line', [
@@ -1381,28 +1451,28 @@ async function rebuildCharts(initial = false) {
   const gripData = liftData('gripper');
   const leverData = liftData('front lever');
   pending.push(createChart('bodyweightChart', 'line', [
-    { ...setsScatter('pull ups', FADED.green), yAxisID: 'y' },
-    { ...setsScatter('v ups', FADED.yellow), yAxisID: 'y' },
-    { ...setsScatter('push ups', FADED.red), yAxisID: 'y' },
-    { ...setsScatter('calf raise bw', FADED.purple), yAxisID: 'y' },
-    { ...setsScatter('gripper', FADED.orange), yAxisID: 'y' },
-    { ...setsScatter('front lever', FADED.cyan), yAxisID: 'y' },
-    { ...setsScatter('dead hang', FADED.blue), yAxisID: 'y1' },
+    { ...setsScatter('pull ups', FADED.green), yAxisID: 'y', group: 'Pull-ups' },
+    { ...setsScatter('v ups', FADED.yellow), yAxisID: 'y', group: 'V-ups' },
+    { ...setsScatter('push ups', FADED.red), yAxisID: 'y', group: 'Push-ups' },
+    { ...setsScatter('calf raise bw', FADED.purple), yAxisID: 'y', group: 'Calf Raise' },
+    { ...setsScatter('gripper', FADED.orange), yAxisID: 'y', group: 'Gripper' },
+    { ...setsScatter('front lever', FADED.cyan), yAxisID: 'y', group: 'Front Lever' },
+    { ...setsScatter('dead hang', FADED.blue), yAxisID: 'y1', group: 'Dead Hang (s)' },
     { label: 'Pull-ups', data: pullData, ...lineDefaults(COLORS.green), yAxisID: 'y' },
-    { ...trendline('pull', pullData, FADED.green), yAxisID: 'y' },
+    { ...trendline('pull', pullData, FADED.green), yAxisID: 'y', group: 'Pull-ups' },
     { label: 'V-ups', data: vupData, ...lineDefaults(COLORS.yellow), yAxisID: 'y' },
-    { ...trendline('vup', vupData, FADED.yellow), yAxisID: 'y' },
+    { ...trendline('vup', vupData, FADED.yellow), yAxisID: 'y', group: 'V-ups' },
     { label: 'Push-ups', data: pushData, ...lineDefaults(COLORS.red), yAxisID: 'y' },
-    { ...trendline('push', pushData, FADED.red), yAxisID: 'y' },
+    { ...trendline('push', pushData, FADED.red), yAxisID: 'y', group: 'Push-ups' },
     { label: 'Calf Raise', data: calfBWData, ...lineDefaults(COLORS.purple), yAxisID: 'y' },
-    { ...trendline('calfBW', calfBWData, FADED.purple), yAxisID: 'y' },
+    { ...trendline('calfBW', calfBWData, FADED.purple), yAxisID: 'y', group: 'Calf Raise' },
     // No gripper trendline: reps reset every time the gripper level goes up,
     // so a fitted line would read progress as decline.
     { label: 'Gripper', data: gripData, ...lineDefaults(COLORS.orange), yAxisID: 'y' },
     { label: 'Front Lever', data: leverData, ...lineDefaults(COLORS.cyan), yAxisID: 'y' },
-    { ...trendline('lever', leverData, FADED.cyan), yAxisID: 'y' },
+    { ...trendline('lever', leverData, FADED.cyan), yAxisID: 'y', group: 'Front Lever' },
     { label: 'Dead Hang (s)', data: hangData, ...lineDefaults(COLORS.blue), yAxisID: 'y1' },
-    { ...trendline('hang', hangData, FADED.blue), yAxisID: 'y1' },
+    { ...trendline('hang', hangData, FADED.blue), yAxisID: 'y1', group: 'Dead Hang (s)' },
   ], (() => {
     const opts = baseOptions({ showLegend: true, timeUnit: 'month' });
     opts.interaction = { mode: 'nearest', intersect: false };
@@ -1446,8 +1516,8 @@ async function rebuildCharts(initial = false) {
   });
   // Neck chart uses reps (y) for the y-axis, so rank PRs by reps not weight.
   const neckAnno = compactAnnotations({
-    neckExtPR: prAnnotation(neckExtData, 'Ext PR', 'y'),
-    neckFlexPR: prAnnotation(neckFlexData, 'Flex PR', 'y'),
+    neckExtPR: annosForGroup(prAnnotation(neckExtData, 'Ext PR', 'y'), 'Neck Extension'),
+    neckFlexPR: annosForGroup(prAnnotation(neckFlexData, 'Flex PR', 'y'), 'Neck Flexion'),
   });
   const neckOpts = liftOpts('reps', neckAnno);
   neckOpts.plugins.tooltip.callbacks = {
@@ -1461,12 +1531,12 @@ async function rebuildCharts(initial = false) {
     },
   };
   pending.push(createChart('neckChart', 'line', [
-    { ...neckExtSets, pointRadius: neckRadius, pointHoverRadius: neckHoverRadius },
-    { ...neckFlexSets, pointRadius: neckRadius, pointHoverRadius: neckHoverRadius },
+    { ...neckExtSets, pointRadius: neckRadius, pointHoverRadius: neckHoverRadius, group: 'Neck Extension' },
+    { ...neckFlexSets, pointRadius: neckRadius, pointHoverRadius: neckHoverRadius, group: 'Neck Flexion' },
     { label: 'Neck Extension', data: neckExtData, ...neckLineDefaults(COLORS.red) },
-    trendline('neckExt', neckExtData, FADED.red),
+    { ...trendline('neckExt', neckExtData, FADED.red), group: 'Neck Extension' },
     { label: 'Neck Flexion', data: neckFlexData, ...neckLineDefaults(COLORS.blue) },
-    trendline('neckFlex', neckFlexData, FADED.blue),
+    { ...trendline('neckFlex', neckFlexData, FADED.blue), group: 'Neck Flexion' },
   ], neckOpts));
 
   // 18. Sleep — stage hours stacked (deep + REM + light ≈ total sleep)
@@ -1560,7 +1630,14 @@ async function rebuildCharts(initial = false) {
         const canvas = entry.chart.canvas;
         if (!_dblclickBound.has(canvas)) {
           _dblclickBound.add(canvas);
-          canvas.addEventListener('dblclick', () => Chart.getChart(canvas)?.resetZoom());
+          canvas.addEventListener('dblclick', (e) => {
+            const c = Chart.getChart(canvas);
+            const l = c?.legend;
+            // A double-click on the legend is "show only this" (legendClick).
+            if (l?.options.display && e.offsetX >= l.left && e.offsetX <= l.right
+                && e.offsetY >= l.top && e.offsetY <= l.bottom) return;
+            c?.resetZoom();
+          });
         }
       }
       applyChartMetadata(data);
