@@ -1,12 +1,12 @@
 # Health Dashboard
 
-Personal health metrics dashboard at https://health.keo.life
+Personal health metrics dashboard (site URL and personal values: git-ignored `CLAUDE.local.md` / `personal.json`; **this repo is public, never commit them**).
 
 ## Tech Stack
 - Static site: HTML + vanilla JS + CSS (no build tools)
 - Charts: Chart.js v4.4.7 (CDN) + date-fns adapter + zoom plugin + hammer + annotation plugin 3.0.1
 - Server: Python stdlib `ThreadingHTTPServer` (`serve.py`) on port 8888
-- Deployment: Cloudflare Tunnel → health.keo.life (no auth — intentional)
+- Deployment: Cloudflare Tunnel → public hostname (no auth — intentional)
 - Auto-start: systemd user service (`health-dashboard.service`)
 
 ## Data Pipeline
@@ -23,7 +23,7 @@ locked (`flock ~/garmin-sync/.pipeline.lock`), sequential run of these steps
 7. `strava_merge` — merges into `running_activities`
 8. `garmin_streams` — per-second HR streams from Garmin FIT records for runs with no Strava stream (`strava_streams/garmin-<id>.json`; Strava's copy wins if both exist)
 9. `hr_recovery` — 60s HR drop from peak per run
-10. `backup` — `backup_garmin_db.sh`: newest 14 garmin.db snapshots + 7 `data/master` tarballs, copied to `/media/keo/hdd-ext4/backups/garmin-sync/`
+10. `backup` — `backup_garmin_db.sh`: newest 14 garmin.db snapshots + 7 `data/master` tarballs, copied to `the second disk`
 
 Also: `garmin-sync.timer` runs `sync_v2` then `merge_daily` at 23:00 and 00:00
 (same lock; unit in `~/.config/systemd/user/garmin-sync.service`, not in a repo)
@@ -52,6 +52,7 @@ carries a CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`.
 | `/api/bodyfat` | `body_fat` | `{date, bodyfat}` |
 | `/api/dexa` | `bodyspec_scans` | `{date, bodyfat}` |
 | `/api/measurements` | `measurements` | `{date, neck, waist, stomach, hips, chest, right_bicep, …}` |
+| `/api/goals` | `personal.json` | `{weightLbs, bodyFatPct, rhrBpm, hrvMs, vo2max, hrRecovery60Bpm}` |
 | `/api/rhr` | `resting_hr` | `{date, rhr}` |
 | `/api/hrv` | `hrv` | `{date, hrv}` |
 | `/api/vo2max` | `vo2max` | `{date, vo2max}` |
@@ -75,7 +76,7 @@ carries a CSP + `nosniff`/`X-Frame-Options`/`Referrer-Policy`.
 ## Frontend
 - `index.html` — six `#hash`-switched "pages": Overview (KPI landing) / Body / Sleep / Daily / Running / Lifts. Header has the GitHub and architecture links; the page nav + range presets (1M/3M/6M/YTD/1Y/All) sit in a sticky `.toolbar` below it that stays pinned while scrolling (switching page from it scrolls back to the top).
 - `data.js` — fires `Promise.allSettled` of all `/api/*` fetches, returns a `data` object; a failed endpoint keeps its last good response (or `[]` on first load). Computes derived series (7-day MA weight, Navy BF%, weekly mileage incl. zero weeks, sleep-stage hours, etc.).
-- `app.js` — creates 28 Chart.js charts. `rebuildCharts()` is idempotent and re-callable (used for the 6h auto-refresh, skipped while the tab is hidden) so DOM state is preserved; a refresh where fetches failed keeps the charts and retries on the next tab visit. Every card has a freshness chip (red when stale; lift cards show "N of M lifts active"). Legend items toggle series: click hides/shows, double-click shows only that one (again: all); remembered per chart in localStorage (`legendHidden`). A dataset's `group` (default: its label) ties companions to its legend item — a lift's set dots, trendline and PR star (`annosForGroup`) hide with its line. Wheel zoom needs Ctrl in the grid (plain wheel zooms only the expanded view). Touch: in the grid a vertical swipe on a chart scrolls the page and a horizontal one pans x; the expanded view pans both axes. X-axis labels are short and never rotated (`xScale`: "Feb", "Feb 14"; the year rides on January / the first tick); tooltip titles are `Tue, Nov 3, 2026`. All date math is local-calendar-day.
+- `app.js` — creates 28 Chart.js charts. `rebuildCharts()` is idempotent and re-callable (used for the 6h auto-refresh, skipped while the tab is hidden) so DOM state is preserved; a refresh where fetches failed keeps the charts and retries on the next tab visit. Every card has a freshness chip (red when stale; lift cards show "N of M lifts active"). Legend items toggle series: click hides/shows, double-click shows only that one (again: all); remembered per chart in localStorage (`legendHidden`). A dataset's `group` (default: its label) ties companions to its legend item — a lift's set dots, trendline and PR star (`annosForGroup`) hide with its line. Lift charts' y-axis fits the visible working-set lines and trendlines (`WorkingSetFit`); warm-up dots outside that range are cut off. Wheel zoom needs Ctrl in the grid (plain wheel zooms only the expanded view). Touch: in the grid a vertical swipe on a chart scrolls the page and a horizontal one pans x; the expanded view pans both axes. X-axis labels are short and never rotated (`xScale`: "Feb", "Feb 14"; the year rides on January / the first tick); tooltip titles are `Tue, Nov 3, 2026`. All date math is local-calendar-day.
 - `styles.css` — dark theme, CSS grid layout, skeleton-pulse loading state. Each canvas sits in a fixed-height `.chart-box` (don't size canvases with `!important` — that drew charts squashed).
 - `architecture.html` — self-contained architecture diagram (also served at `/architecture.html`).
 
@@ -101,16 +102,16 @@ served live. After editing `serve.py`, restart the service.
 ## Services
 - `systemctl --user status health-dashboard.service` — Python server
 - `sudo systemctl status cloudflared.service` — Cloudflare Tunnel
-- Logs: `/home/keo/repos/health-dashboard/logs/dashboard.log`
+- Logs: `logs/dashboard.log`
 
 ## Constants & filters
-- Height for Navy BF% = **72 inches** (6'0")
+- Height for Navy BF% and all goals: `personal.json` (served as `/api/goals`; height never leaves the server, `/api/measurements` adds `navy`)
 - HRmax for zone bins = **200 bpm**
 - Weight converted from kg via `* 2.20462`
-- Run-vs-walk filter (data.js `processRuns`): **avg HR ≥ 110 AND pace ≤ 18 min/mi** — every row in `running_activities` was recorded as "running" on the watch, walks included, so sport can't separate them; nothing faster than 12 min/mi has HR < 110. **Known gap:** pace uses elapsed `duration_sec`, so a run session with long standing rests is dropped as a walk (2026-04-26, 05-03, 05-10, 10-07 19:24 — 3.33 mi at 10.7 min/mi moving, 18.2 elapsed) and is missing from Weekly Mileage, while Zone Minutes and HR Recovery include it. Garmin's `movingDuration` is in `data/master/activities.json` but not in the DB.
+- Run-vs-walk filter (data.js `processRuns`): **avg HR ≥ 110 AND pace ≤ 18 min/mi** — every row in `running_activities` was recorded as "running" on the watch, walks included, so sport can't separate them; nothing faster than 12 min/mi has HR < 110. **Known gap:** pace uses elapsed `duration_sec`, so a run session with long standing rests is dropped as a walk and is missing from Weekly Mileage, while Zone Minutes and HR Recovery include it. Garmin's `movingDuration` is in `data/master/activities.json` but not in the DB.
 - PR stars (lift charts, `prAnnotation`): rank by estimated 1-rep max (Epley: `weight·(1+reps/30)`) across **every set** in `/api/workout-sets`, not raw weight — so 100×10 outranks 100×9; label shows `weight×reps`. Bodyweight/rep-only lifts rank by reps.
 - Daily weight = the **last Renpho reading between 04:00 and 12:00** local (else the first one after noon). Older days are only rewritten when the stored value isn't a scale reading at all (`renpho_sync.py`).
-- Body-fat goal (12%) is on the **DEXA scale**: the KPI gap and goal line compare against the latest DEXA scan, never the Renpho number (which is just a function of weight).
+- Body-fat goal is on the **DEXA scale**: the KPI gap and goal line compare against the latest DEXA scan, never the Renpho number (which is just a function of weight).
 - Moving averages (30-day, 90-day) are calendar-day windows, not sample counts.
 - 5K filter: 2.8–3.5 mi distance, 8–12 min/mi pace
 - Long runs: ≥ 5 miles
@@ -119,7 +120,7 @@ served live. After editing `serve.py`, restart the service.
 
 ## Gotchas
 - `garmin.db` is the only writable state — backed up as the pipeline's last step (newest 14 kept, plus a copy on the second disk). Any manual script that writes it must hold `flock ~/garmin-sync/.pipeline.lock`.
-- All exercise normalization happens in `~/garmin-sync/workout_sync.py` (substring matching, order-sensitive: more-specific patterns must come first). `machine row` / `plate loaded row` / `high row` are deliberately NOT folded into `row machine` — they are different machines (90–115 lb vs 190–250 lb); all of them predate 2026 except one week, so the YTD chart is unaffected.
+- All exercise normalization happens in `~/garmin-sync/workout_sync.py` (substring matching, order-sensitive: more-specific patterns must come first). `machine row` / `plate loaded row` / `high row` are deliberately NOT folded into `row machine` — they are different machines; all of them predate 2026 except one week, so the YTD chart is unaffected.
 - `training_days` in `workout_weeks` is only meaningful for weeks whose sheet tab has weekday headers (2026-01-31 on); the dashboard doesn't display it.
 - Hammer (zoom plugin) sets inline `touch-action: none` on every canvas, which blocked page scrolling on a phone; `styles.css` overrides it to `pan-y` in the grid (the one deliberate `!important`) and `pan.mode` in app.js drops to `'x'` for touch there.
 - Annotation animations are off globally (`Chart.defaults.plugins.annotation.animations = false`): a card resize mid-animation used to strand goal lines at the wrong pixel.

@@ -13,18 +13,10 @@ const COLORS = {
   blueBar: 'rgba(74,158,255,0.7)',
 };
 
-// Personal goals from /home/keo/Documents/notes/goals.md.
-// Near-term targets (Summer 2026); a few longer-term values noted in comments.
-const GOALS = {
-  weightLbs: 190,        // updated 2026-09-30 (was 193) — late Oct 2026 per goals.md
-  bodyFatPct: 12,        // updated 2026-08-10 (was 13). DEXA scale — pairs with the 193 lb goal.
-                         // Ignore the Renpho body-fat number: it isn't a measurement, it's
-                         // 0.105 * weight - 5.28 (R^2 = 0.996 vs weight alone, Feb-Aug 2026).
-  rhrBpm: 55,            // Jan 2027 (currently ~62)
-  hrvMs: 44,             // late 2027 (currently ~25)
-  vo2max: 50,            // Jan 2027 (currently ~40)
-  hrRecovery60Bpm: 50,   // Jan 2027 (currently ~34)
-};
+// Personal goals live in the git-ignored personal.json (served by /api/goals).
+// A missing goal just means no goal line or "to goal" note. Body fat is on the
+// DEXA scale: the Renpho number is only a function of weight.
+const GOALS = await fetch('/api/goals').then(r => r.ok ? r.json() : {}).catch(() => ({}));
 
 // User-maintained event log — annotations get drawn on charts in matching scope.
 // Edit this array to add race days, diet changes, injuries, etc.
@@ -526,6 +518,33 @@ function legendClick(e, item, legend) {
   setHiddenGroups(chart, hidden);
   _lastLegendClick = { chart, group, t: now, before };
 }
+
+// Lift charts fit y to the working sets: each visible lift's weekly top-set line
+// and trendline in the visible x range. The faint per-set dots don't count, so
+// one light warm-up can't stretch the axis (dots outside it are cut off). A
+// manual y zoom still wins.
+const WorkingSetFit = {
+  id: 'workingSetFit',
+  afterDataLimits(chart, { scale }) {
+    if (scale.axis !== 'y' || scale.options.min != null || scale.options.max != null) return;
+    const sets = chart.data.datasets;
+    if (!sets.some(ds => ds.group)) return;
+    const x = chart.scales.x;
+    const lo = x.options.min != null ? x.parse(x.options.min) : -Infinity;
+    const hi = x.options.max != null ? x.parse(x.options.max) : Infinity;
+    const ys = sets
+      .filter((ds, i) => ds.type !== 'scatter' && (ds.yAxisID ?? 'y') === scale.id && chart.isDatasetVisible(i))
+      .flatMap(ds => ds.data)
+      .filter(p => p?.y != null && x.parse(p.x) >= lo && x.parse(p.x) <= hi)
+      .map(p => p.y);
+    if (!ys.length) return;
+    const min = Math.min(...ys), max = Math.max(...ys);
+    const pad = (max - min) * 0.08 || Math.max(1, max * 0.1);
+    scale.min = Math.max(0, min - pad);
+    scale.max = max + pad;
+  },
+};
+Chart.register(WorkingSetFit);
 
 /** Show `annos` (an annotation map) only while `group`'s series is visible,
  *  on top of each annotation's own display rule. */
@@ -1254,7 +1273,7 @@ async function rebuildCharts(initial = false) {
    *
    * For weight lifts pass EVERY set (setsScatter(…).data), not the weekly line:
    * the line only carries each week's heaviest set, and the best e1RM can be a
-   * lighter set that week (RDL DB 315×12 → 441 sat under a 365×5 → 426 top set).
+   * lighter set that week (a higher-rep set can out-score the week's heaviest).
    *
    * IMPORTANT: chartjs-plugin-annotation@3 does NOT honor a `label` sub-option
    * on `type: 'point'` — labels must be their own `type: 'label'` annotation.
@@ -1305,8 +1324,11 @@ async function rebuildCharts(initial = false) {
       return ys.getPixelForValue(top.y) < chart.chartArea.top + 30 ? 18 : -18;
     };
     return {
+      // adjustScaleRange off: a star sits on its lift's own data, and the plugin
+      // counts it even while hidden, which held the y-axis open for other lifts.
       [`${id}_pt`]: {
         type: 'point',
+        adjustScaleRange: false,
         xValue: top.x,
         yValue: top.y,
         radius: 8,
@@ -1317,6 +1339,7 @@ async function rebuildCharts(initial = false) {
       },
       [`${id}_lbl`]: {
         type: 'label',
+        adjustScaleRange: false,
         xValue: top.x,
         yValue: top.y,
         content: valueText,
@@ -1680,7 +1703,7 @@ function goalGap(latest, goal, { unit = '', decimals = 1, lowerIsBetter = false 
 }
 
 /** Body-fat goal gap, measured from the latest DEXA scan and labelled with its
- *  date: "DEXA 15.8% (May 13) · 3.8 % to goal". The goal is on the DEXA scale
+ *  date: "DEXA x% (Mon d) · y % to goal". The goal is on the DEXA scale
  *  (see GOALS), so the Renpho reading can't be compared with it — with no scan
  *  there is no gap to show. */
 function dexaGoalNote(data) {

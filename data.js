@@ -102,14 +102,10 @@ function processWeight(rows) {
 
 // --- Body Fat ---
 function processBodyFat(bodyfat, measurements, dexa) {
-  // Navy BF% from measurements (neck + stomach = abdomen at navel, height = 72 inches)
-  const HEIGHT_IN = 72;
+  // Navy BF% is computed by /api/measurements (height stays server-side).
   const navy = measurements
-    .filter(m => m.neck && m.stomach)
-    .map(m => {
-      const bf = 86.010 * Math.log10(m.stomach - m.neck) - 70.041 * Math.log10(HEIGHT_IN) + 36.76;
-      return { date: m.date, navy: Math.round(bf * 10) / 10 };
-    });
+    .filter(m => m.navy != null)
+    .map(m => ({ date: m.date, navy: m.navy }));
 
   return {
     renpho: bodyfat.map(d => ({ date: d.date, renpho: d.bodyfat })),

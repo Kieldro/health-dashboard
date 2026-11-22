@@ -5,6 +5,7 @@ import base64
 import gzip
 import hashlib
 import json
+import math
 import logging
 import os
 import re
@@ -26,6 +27,7 @@ PORT = int(os.environ.get("PORT", "8888"))
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
 GARMIN_DB = os.environ.get("GARMIN_DB") or os.path.expanduser("~/HealthData/DBs/garmin.db")
 SYNC_DIR = os.environ.get("GARMIN_SYNC_DIR") or os.path.expanduser("~/garmin-sync")
+PERSONAL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "personal.json")
 MASTER_DIR = os.path.join(SYNC_DIR, "data", "master")
 LOGS_DIR = os.path.join(STATIC_DIR, "logs")
 os.makedirs(LOGS_DIR, exist_ok=True)
@@ -110,9 +112,29 @@ def api_dexa():
         "SELECT scan_date as date, total_body_fat_pct as bodyfat FROM bodyspec_scans ORDER BY scan_date")
 
 
+def _personal():
+    """Git-ignored personal values (height, goals); {} if the file is missing."""
+    try:
+        with open(PERSONAL_FILE) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def api_goals():
+    return _personal().get("goals", {})
+
+
 def api_measurements():
-    return query_db(GARMIN_DB,
+    rows = query_db(GARMIN_DB,
         "SELECT day as date, neck, waist, stomach, hips, chest, right_bicep, right_forearm, right_quad, right_calf FROM measurements ORDER BY day")
+    # Navy BF% (neck + stomach = abdomen at navel) needs height, so it's done here.
+    height = _personal().get("height_in")
+    for m in rows if height else ():
+        if m["neck"] and m["stomach"] and m["stomach"] > m["neck"]:
+            bf = 86.010 * math.log10(m["stomach"] - m["neck"]) - 70.041 * math.log10(height) + 36.76
+            m["navy"] = math.floor(bf * 10 + 0.5) / 10
+    return rows
 
 
 def api_rhr():
@@ -756,6 +778,7 @@ API_ROUTES = {
     "/api/bodyfat": api_bodyfat,
     "/api/dexa": api_dexa,
     "/api/measurements": api_measurements,
+    "/api/goals": api_goals,
     "/api/rhr": api_rhr,
     "/api/hrv": api_hrv,
     "/api/activities": api_activities,
@@ -1075,7 +1098,7 @@ class Server(ThreadingHTTPServer):
 
 
 if __name__ == "__main__":
-    # Bind loopback only: cloudflared proxies health.keo.life -> http://localhost:8888
+    # Bind loopback only: cloudflared proxies the public hostname -> http://localhost:8888
     # on this host, so the public tunnel still works while the LAN can no longer
     # reach the dashboard directly (bypassing Cloudflare's TLS/WAF).
     server = Server(("127.0.0.1", PORT), Handler)

@@ -5,8 +5,8 @@ Description=Health Dashboard Server
 
 [Service]
 Type=simple
-WorkingDirectory=/home/keo/repos/health-dashboard
-ExecStart=/usr/bin/python3 /home/keo/repos/health-dashboard/serve.py
+WorkingDirectory=%h/repos/health-dashboard
+ExecStart=/usr/bin/python3 %h/repos/health-dashboard/serve.py
 # always, not on-failure: also come back after a clean exit or a stray SIGTERM.
 Restart=always
 RestartSec=5

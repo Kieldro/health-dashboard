@@ -2,3 +2,6 @@ logs/
 .playwright-mcp/
 *.pyc
 __pycache__/
+# Personal values and notes: never commit (public repo)
+personal.json
+CLAUDE.local.md
