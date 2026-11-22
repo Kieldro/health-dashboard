@@ -449,7 +449,7 @@ function linearTrendline(points) {
 }
 
 /** Points for a lift's trendline, so that reps count: each week's best set by
- *  estimated 1RM (Epley, sets of ≤ 20 reps) over the lift's last 12 weeks, then
+ *  estimated 1RM (Epley, reps capped at 20) over the lift's last 12 weeks, then
  *  converted back to the weight you'd move at your usual reps in that window.
  *  That keeps the line on the chart's lbs axis, next to the top sets, while
  *  540×8 after 540×18 reads as a decline. No usable reps: the plain points. */
@@ -457,9 +457,12 @@ const TREND_WINDOW_DAYS = 84;
 function repAdjustedPoints(sets, points) {
   const byWeek = new Map();
   for (const s of sets.length ? sets : points) {
-    if (!(s.weight > 0 && s.reps >= 1 && s.reps <= 20)) continue;
-    const e1rm = s.weight * (1 + s.reps / 30);
-    if (e1rm > (byWeek.get(s.x)?.e1rm ?? 0)) byWeek.set(s.x, { x: s.x, e1rm, reps: s.reps });
+    if (!(s.weight > 0 && s.reps >= 1)) continue;
+    // Capped, not skipped: Epley overshoots at high reps, but a 305×28 is still
+    // that week's real effort on a high-rep lift (dropping it left its 305×3).
+    const reps = Math.min(s.reps, 20);
+    const e1rm = s.weight * (1 + reps / 30);
+    if (e1rm > (byWeek.get(s.x)?.e1rm ?? 0)) byWeek.set(s.x, { x: s.x, e1rm, reps });
   }
   const weeks = [...byWeek.values()].sort((a, b) => a.x.localeCompare(b.x));
   if (weeks.length < 2) return points;
