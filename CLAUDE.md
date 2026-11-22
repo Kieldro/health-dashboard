@@ -112,6 +112,7 @@ served live. After editing `serve.py`, restart the service.
 - PR stars (lift charts, `prAnnotation`): rank by estimated 1-rep max (Epley: `weight·(1+reps/30)`) across **every set** in `/api/workout-sets`, not raw weight — so 100×10 outranks 100×9; label shows `weight×reps`. Bodyweight/rep-only lifts rank by reps.
 - Daily weight = the **last Renpho reading between 04:00 and 12:00** local (else the first one after noon). Older days are only rewritten when the stored value isn't a scale reading at all (`renpho_sync.py`).
 - Body-fat goal is on the **DEXA scale**: the KPI gap and goal line compare against the latest DEXA scan, never the Renpho number (which is just a function of weight).
+- Weight-lift trendlines (`repAdjustedPoints`): each week's best estimated 1RM (Epley, ≤ 20 reps) over the lift's last 12 weeks, converted back to weight at the usual reps in that window so the line stays on the lbs axis. Rep-only charts (Bodyweight, Neck) keep a plain trend.
 - Moving averages (30-day, 90-day) are calendar-day windows, not sample counts.
 - 5K filter: 2.8–3.5 mi distance, 8–12 min/mi pace
 - Long runs: ≥ 5 miles

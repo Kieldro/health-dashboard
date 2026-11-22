@@ -448,6 +448,28 @@ function linearTrendline(points) {
   ];
 }
 
+/** Points for a lift's trendline, so that reps count: each week's best set by
+ *  estimated 1RM (Epley, sets of ≤ 20 reps) over the lift's last 12 weeks, then
+ *  converted back to the weight you'd move at your usual reps in that window.
+ *  That keeps the line on the chart's lbs axis, next to the top sets, while
+ *  540×8 after 540×18 reads as a decline. No usable reps: the plain points. */
+const TREND_WINDOW_DAYS = 84;
+function repAdjustedPoints(sets, points) {
+  const byWeek = new Map();
+  for (const s of sets.length ? sets : points) {
+    if (!(s.weight > 0 && s.reps >= 1 && s.reps <= 20)) continue;
+    const e1rm = s.weight * (1 + s.reps / 30);
+    if (e1rm > (byWeek.get(s.x)?.e1rm ?? 0)) byWeek.set(s.x, { x: s.x, e1rm, reps: s.reps });
+  }
+  const weeks = [...byWeek.values()].sort((a, b) => a.x.localeCompare(b.x));
+  if (weeks.length < 2) return points;
+  const start = dayNum(weeks.at(-1).x) - TREND_WINDOW_DAYS;
+  const recent = weeks.filter(w => dayNum(w.x) >= start);
+  const fit = recent.length >= 2 ? recent : weeks;
+  const usualReps = fit.reduce((sum, w) => sum + w.reps, 0) / fit.length;
+  return fit.map(w => ({ x: w.x, y: w.e1rm / (1 + usualReps / 30) }));
+}
+
 /** Trailing moving average over the last `days` CALENDAR days (rows must be
  *  date-ascending). A sample-count window isn't a "30-day" MA: these series
  *  have gaps, so the last 30 rows can reach back well past 30 days. */
@@ -1450,7 +1472,16 @@ async function rebuildCharts(initial = false) {
       return {
         scatter: { ...scatter, group: label },
         line: { label, data: points, ...liftDefaults(COLORS[color]) },
-        trend: { ...trendline(exercise, points, FADED[color]), group: label },
+        trend: {
+          ...trendline(exercise, repAdjustedPoints(scatter.data, points), FADED[color]),
+          group: label,
+          // Drawn over its line, which it can sit right on (a flat top weight);
+          // white once isolated, since the same color would vanish into it.
+          order: -1,
+          borderColor: ({ chart }) => new Set(chart.data.datasets
+            .filter((ds, i) => chart.isDatasetVisible(i)).map(groupOf)).size === 1
+            ? 'rgba(255,255,255,0.9)' : FADED[color],
+        },
         // Rank the PR over every set; the weekly top sets are only a fallback
         // for when /api/workout-sets came back empty.
         pr: annosForGroup(prAnnotation(scatter.data.length ? scatter.data : points, prLabel), label),
