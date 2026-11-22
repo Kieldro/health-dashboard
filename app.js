@@ -448,13 +448,14 @@ function linearTrendline(points) {
   ];
 }
 
-/** Points for a lift's trendline, so that reps count: each week's best set by
- *  estimated 1RM (Epley, reps capped at 20) over the lift's last 12 weeks, then
- *  converted back to the weight you'd move at your usual reps in that window.
- *  That keeps the line on the chart's lbs axis, next to the top sets, while
- *  540×8 after 540×18 reads as a decline. No usable reps: the plain points. */
-const TREND_WINDOW_DAYS = 84;
-function repAdjustedPoints(sets, points) {
+/** A lift's trend curve, so that reps count and it can follow a bulk or a cut:
+ *  each week's best set by estimated 1RM (Epley, reps capped at 20), smoothed
+ *  with a time-weighted average (3-week half-life, so missed weeks are handled
+ *  and past values never change). Scaled by one constant so its peak meets the
+ *  lift's heaviest top set: it stays on the lbs axis, can't overshoot anything
+ *  lifted, and keeps its true shape. No usable reps: smooths `points`. */
+const TREND_HALF_LIFE_DAYS = 21;
+function liftTrendCurve(sets, points) {
   const byWeek = new Map();
   for (const s of sets.length ? sets : points) {
     if (!(s.weight > 0 && s.reps >= 1)) continue;
@@ -464,13 +465,18 @@ function repAdjustedPoints(sets, points) {
     const e1rm = s.weight * (1 + reps / 30);
     if (e1rm > (byWeek.get(s.x)?.e1rm ?? 0)) byWeek.set(s.x, { x: s.x, e1rm, reps });
   }
-  const weeks = [...byWeek.values()].sort((a, b) => a.x.localeCompare(b.x));
-  if (weeks.length < 2) return points;
-  const start = dayNum(weeks.at(-1).x) - TREND_WINDOW_DAYS;
-  const recent = weeks.filter(w => dayNum(w.x) >= start);
-  const fit = recent.length >= 2 ? recent : weeks;
-  const usualReps = fit.reduce((sum, w) => sum + w.reps, 0) / fit.length;
-  return fit.map(w => ({ x: w.x, y: w.e1rm / (1 + usualReps / 30) }));
+  const rows = byWeek.size
+    ? [...byWeek.values()].map(w => ({ x: w.x, y: w.e1rm }))
+    : points.map(p => ({ x: p.x, y: p.y }));
+  rows.sort((a, b) => a.x.localeCompare(b.x));
+  if (rows.length < 2) return [];
+  let value = rows[0].y;
+  const curve = rows.map((r, i) => {
+    if (i) value += (r.y - value) * (1 - 0.5 ** ((dayNum(r.x) - dayNum(rows[i - 1].x)) / TREND_HALF_LIFE_DAYS));
+    return { x: r.x, y: value };
+  });
+  const scale = Math.max(...points.map(p => p.y)) / Math.max(...curve.map(p => p.y));
+  return curve.map(p => ({ x: p.x, y: p.y * scale }));
 }
 
 /** Trailing moving average over the last `days` CALENDAR days (rows must be
@@ -1476,7 +1482,10 @@ async function rebuildCharts(initial = false) {
         scatter: { ...scatter, group: label },
         line: { label, data: points, ...liftDefaults(COLORS[color]) },
         trend: {
-          ...trendline(exercise, repAdjustedPoints(scatter.data, points), FADED[color]),
+          ...trendline(exercise, [], FADED[color], {
+            data: liftTrendCurve(scatter.data, points),
+            cubicInterpolationMode: 'monotone',
+          }),
           group: label,
           // Drawn over its line, which it can sit right on (a flat top weight);
           // white once isolated, since the same color would vanish into it.
