@@ -520,9 +520,10 @@ function legendClick(e, item, legend) {
 }
 
 // Lift charts fit y to the working sets: each visible lift's weekly top-set line
-// and trendline in the visible x range. The faint per-set dots don't count, so
-// one light warm-up can't stretch the axis (dots outside it are cut off). A
-// manual y zoom still wins.
+// in the visible x range. The faint per-set dots and the trendlines (`_` labels)
+// don't count, so a light warm-up or a straight-line fit overshooting a plateau
+// can't stretch the axis; whatever falls outside is cut off. A manual y zoom
+// still wins.
 const WorkingSetFit = {
   id: 'workingSetFit',
   afterDataLimits(chart, { scale }) {
@@ -533,7 +534,7 @@ const WorkingSetFit = {
     const lo = x.options.min != null ? x.parse(x.options.min) : -Infinity;
     const hi = x.options.max != null ? x.parse(x.options.max) : Infinity;
     const ys = sets
-      .filter((ds, i) => ds.type !== 'scatter' && (ds.yAxisID ?? 'y') === scale.id && chart.isDatasetVisible(i))
+      .filter((ds, i) => !ds.label?.startsWith('_') && (ds.yAxisID ?? 'y') === scale.id && chart.isDatasetVisible(i))
       .flatMap(ds => ds.data)
       .filter(p => p?.y != null && x.parse(p.x) >= lo && x.parse(p.x) <= hi)
       .map(p => p.y);
